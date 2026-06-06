@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from models.task_event import TaskEvent
 from models.task_result import TaskResult
 
-class TaskProcessor(ABC):
+class TaskProcesser(ABC):
     """任務處理器基類
     
     定義了任務處理的基本接口
