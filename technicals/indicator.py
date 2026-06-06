@@ -5,7 +5,6 @@ from pydantic import Field
 from models.basemodel import BaseModelWithConfig
 from util.process import ewm
 
-
 class IndicatorInfo(BaseModelWithConfig):
     """
     "name" : "EMA", 指標統一名稱

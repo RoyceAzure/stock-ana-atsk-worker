@@ -5,7 +5,6 @@ import uuid
 from pydantic import Field, Json
 from models.basemodel import BaseModelWithConfig
 
-
 class CandleIntervalEnum(Enum):
     D1 = "d1"
 
