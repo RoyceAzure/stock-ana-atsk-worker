@@ -1,13 +1,13 @@
 from core.error.task_error import PermanentError
 import duckdb
 import psycopg2
-from models.task_event import TaskEvent
-from service.tasak_processer.task_processor import TaskProcessor
+from models.task_event import EventStage, TaskEvent
 from service.pipline.pandas_trade_price_pipline import get_pandas_pre_process_pipline
 from infra.repo.data_meger.s3_parquet_meger import S3ParquetMerger
 from models.pipline_model.pipline_params import SinkParams
+from service.task.handler import TaskHandler
 
-class PreProcessPandasTaskProcessor(TaskProcessor):
+class PreProcessPandasTaskProcessor(TaskHandler):
     """預處理任務處理器
         Args:
             pg_conn: postgres connection
@@ -20,6 +20,7 @@ class PreProcessPandasTaskProcessor(TaskProcessor):
     
     """
     def __init__(self, pg_conn: psycopg2.extensions.connection, duckdb_conn: duckdb.DuckDBPyConnection, parquet_meger: S3ParquetMerger):
+        self.super.__init__(EventStage.PRE_STAGE)
         self.pg_conn = pg_conn
         self.duckdb_conn = duckdb_conn
         self.parquet_meger = parquet_meger

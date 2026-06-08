@@ -7,6 +7,9 @@ from infra.repo.pg_dao import DatabaseRepository
 from models.task_event import EventStage, TaskEvent, TaskEventStatus, UpdateTaskEventParams
 from models.task_result import ConsumerResult, TaskResult
 
+logger = logging.getLogger(__name__)
+
+
 class TaskEventHelper(Protocol):
     """處理Task event 領域相關邏輯 資料前處理，以及後續處理"""
     def decode_message(self, messages: List[Dict[str, Any]]) -> Tuple[List[TaskEvent], List[str], List[str]]:
@@ -56,7 +59,6 @@ class TaskEventHelper:
     """處理Task event 領域相關邏輯 資料前處理，以及後續處理 for sqs consumer"""
     def __init__(self, db_dao: DatabaseRepository):
         self.db_dao = db_dao
-        self.logger = logging.getLogger(__name__)
         
     def decode_message(self, messages: List[Dict[str, Any]]) -> Tuple[List[TaskEvent], List[str], List[str]]:
         """解碼資料
@@ -78,11 +80,11 @@ class TaskEventHelper:
             try:
                 body = msg['Body']
                 task_event = self._get_task_event(body)
-                self.logger.info(f"收到任務: {task_event.id}")
+                logger.info(f"收到任務: {task_event.id}")
                 task_events.append(task_event)
                 receipt_handles.append(msg['ReceiptHandle'])
             except Exception as e:
-                self.logger.error(f"解析任務失敗: {e}")
+                logger.error(f"解析任務失敗: {e}")
                 failed_receipt_handles.append(msg['ReceiptHandle'])
 
         return task_events, receipt_handles, failed_receipt_handles
@@ -106,9 +108,9 @@ class TaskEventHelper:
                 stage=stage,
                 error_message=result.message if result.is_successed.value == ConsumerResult.FAILED.value else ""
             )
-            self.logger.info(f"taskid :{result.id} 任務狀態更新完成")
+            logger.info(f"taskid :{result.id} 任務狀態更新完成")
         except Exception as e:
-            self.logger.error(f"任務成功，但是更新任務狀態失敗: {e}")
+            logger.error(f"任務成功，但是更新任務狀態失敗: {e}")
 
 
     def handle_error(self, task_id: str, stage: EventStage, error: Exception) -> None:
@@ -126,9 +128,9 @@ class TaskEventHelper:
                 stage=stage,
                 error_message=str(error)
             )
-            self.logger.error(f"{self.__class__.__name__} 任務失敗: {error}")
+            logger.error(f"{self.__class__.__name__} 任務失敗: {error}")
         except Exception as e:
-            self.logger.error(f"任務失敗，且更新任務狀態失敗: {e}")
+            logger.error(f"任務失敗，且更新任務狀態失敗: {e}")
 
 
     def _get_task_event(self, message: bytes) -> TaskEvent:
