@@ -1,0 +1,6 @@
+apiVersion: v2
+name: postgres
+description: Sexy Stock 專案的 PostgreSQL 資料庫
+type: application
+version: 0.1.0
+appVersion: "16.0"

@@ -1,0 +1,32 @@
+# 映像檔設定 (對應原本 docker-compose 的 image)
+image:
+  repository: ghcr.io/royceazure/sexy_stock/postgres
+  tag: dev-latest
+
+# 資料庫核心設定與效能調校
+postgresql:
+  database: "sexy_stock"
+  username: "postgres"
+  # 注意：這裡是本地測試用的「假密碼」。
+  # 正式上 GCP 時，請不要改動這裡，而是透過 CI/CD 指令動態覆寫。
+  password: "password"
+  
+  # 對應原本 docker-compose 的 command 參數
+  shared_buffers: "128MB"
+  effective_cache_size: "384MB"
+  max_connections: "100"
+  work_mem: "4MB"
+  maintenance_work_mem: "32MB"
+
+# 硬體資源分配 (對應原本 docker-compose 的 deploy.resources)
+resources:
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+
+# 實體硬碟儲存空間 (對應 PVC)
+persistence:
+  size: 5Gi  # 本地測試 5Gi 通常很夠用了

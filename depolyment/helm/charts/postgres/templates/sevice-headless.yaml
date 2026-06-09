@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-postgres-headless
+  labels:
+    app: postgres
+spec:
+  # 關鍵設定：宣告這是一個 Headless Service
+  clusterIP: None
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgresql
+  selector:
+    app: postgres

@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-postgres
+  labels:
+    app: postgres
+spec:
+  # 綁定 Headless Service 提供穩定的內部 DNS
+  serviceName: {{ .Release.Name }}-postgres-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: 5432
+              name: postgresql
+          # 環境變數 (實務上密碼建議改用 K8s Secret，此處先以 Value 對應)
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgres-secret
+                  key: postgres-password
+          # 啟動指令與效能調校參數
+          command:
+            - postgres
+          args:
+            - "-c"
+            - "shared_buffers={{ .Values.postgresql.shared_buffers }}"
+            - "-c"
+            - "effective_cache_size={{ .Values.postgresql.effective_cache_size }}"
+            - "-c"
+            - "max_connections={{ .Values.postgresql.max_connections }}"
+            - "-c"
+            - "work_mem={{ .Values.postgresql.work_mem }}"
+            - "-c"
+            - "maintenance_work_mem={{ .Values.postgresql.maintenance_work_mem }}"
+          # 對應 deploy.resources (limits 與 reservations)
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: rj-postgres-data
+              mountPath: /var/lib/postgresql/data
+            # 對應 shm_size: 256mb
+            - name: dshm
+              mountPath: /dev/shm
+          # 對應 healthcheck
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - "-c"
+                - "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB -p 5432"
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        # 使用記憶體作為硬碟，實現 shm_size
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+  # 對應 volumes: rj_postgres (向 K8s 申請實體硬碟)
+  volumeClaimTemplates:
+    - metadata:
+        name: rj-postgres-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
