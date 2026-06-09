@@ -11,4 +11,5 @@
 
 Include 'enums.dbml'
 Include 'tables/task_event.dbml'
+Include 'tables/test_result.dbml'
 Include 'refs.dbml'

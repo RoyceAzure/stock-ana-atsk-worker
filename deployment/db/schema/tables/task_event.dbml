@@ -37,10 +37,5 @@ Table task_event {
     source_meta_data [name: 'idx_task_event_candle', note: 'PG expression: (source_meta_data->>''candle'')']
   }
 
-  Note: '''
-    回測／任務執行事件主表。
-
-  Referenced by:
-    - test_result.task_event_id → task_event.id (fk_task_event_id, migration 000012)
-  '''
+  Note: '回測／任務執行事件主表。'
 }

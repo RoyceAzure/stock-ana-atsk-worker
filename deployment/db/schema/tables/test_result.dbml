@@ -1,0 +1,30 @@
+// Table: test_result
+// Migrations: 000010, 000012, 000021, 000022
+
+Table test_result {
+  id integer [pk, increment, not null, note: 'SERIAL，自動遞增主鍵']
+  key_string varchar(255) [unique, not null]
+  strategy_parms jsonb [not null, note: '常用欄位：name、data_model.code、data_model.candle（見 expression index）']
+  tester_params jsonb [not null]
+  summary jsonb [not null]
+  file jsonb [not null]
+  completed_at timestamptz [not null]
+  created_at timestamptz [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz [not null]
+  task_event_id uuid [not null, note: 'FK → task_event.id (fk_task_event_id)']
+
+  indexes {
+    key_string [unique, name: 'test_result_key_string_key']
+    completed_at [name: 'idx_test_result_completed_at']
+    strategy_parms [name: 'idx_test_result_strategy_parms', note: 'GIN index']
+    summary [name: 'idx_test_result_summary', note: 'GIN index']
+    strategy_parms [name: 'idx_test_result_name', note: 'PG expression: (strategy_parms->>''name'')']
+    strategy_parms [name: 'idx_test_result_code', note: 'PG expression: ((strategy_parms->''data_model'')>>''code'')']
+    strategy_parms [name: 'idx_test_result_candle', note: 'PG expression: ((strategy_parms->''data_model'')>>''candle'')']
+    (strategy_parms) [name: 'idx_test_result_name_code_combined', note: 'PG expression: (strategy_parms->>''name''), ((strategy_parms->''data_model'')>>''code'')']
+  }
+
+  Note: '''
+    回測結果儲存表，每筆對應一個 task_event。
+  '''
+}
