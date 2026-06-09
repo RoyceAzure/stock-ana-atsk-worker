@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_test_result_name_code_combined;

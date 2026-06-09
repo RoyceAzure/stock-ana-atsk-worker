@@ -1,0 +1,1 @@
+ALTER TABLE backtest_scheduler_task ADD COLUMN used_process_pool BOOLEAN NOT NULL DEFAULT FALSE;

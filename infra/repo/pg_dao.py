@@ -471,13 +471,13 @@ class DatabaseRepository(BaseRepository):
             raise Exception(f"更新Task Event失敗: {str(e)}")
 
     def db_claim_task(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """原子性領取任務，將 status 從 pending 更新為 running 並回傳 payload。
+        """原子性領取任務，將 status 從 pending 更新為 running 並回傳任務資料。
 
         Args:
             task_id (str): 任務 ID uuid str
 
         Returns:
-            Optional[Dict[str, Any]]: 任務 payload 字典，若已被領走或不存在則回傳 None
+            Optional[Dict[str, Any]]: task_event 整列字典，若已被領走或不存在則回傳 None
 
         Raises:
             Exception: 當資料庫操作發生錯誤時拋出異常
@@ -485,16 +485,17 @@ class DatabaseRepository(BaseRepository):
         try:
             sql = """
             UPDATE task_event
-            SET status = %s, updated_at = NOW()
+            SET status = %s,
+                updated_at = NOW()
             WHERE id = %s AND status = %s
-            RETURNING payload;
+            RETURNING *;
             """
             res = self.fetch_one(sql, ('running', task_id, 'pending'))
             self.commit()
 
             if res is None:
                 return None
-            return res.get('payload')
+            return dict(res)
 
         except Exception as e:
             self.rollback()

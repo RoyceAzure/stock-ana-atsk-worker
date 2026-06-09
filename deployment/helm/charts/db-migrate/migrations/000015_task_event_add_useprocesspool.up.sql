@@ -1,0 +1,1 @@
+ALTER TABLE task_event ADD COLUMN used_process_pool BOOLEAN NOT NULL DEFAULT FALSE;
