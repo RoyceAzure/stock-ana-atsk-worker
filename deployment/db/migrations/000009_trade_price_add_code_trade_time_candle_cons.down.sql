@@ -1,0 +1,1 @@
+ALTER TABLE trade_price DROP CONSTRAINT unique_trade_price;

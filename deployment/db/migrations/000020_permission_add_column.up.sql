@@ -1,0 +1,2 @@
+ALTER TABLE permissions ADD COLUMN resource VARCHAR(50) NOT NULL;
+ALTER TABLE permissions ADD COLUMN actions VARCHAR(50) NOT NULL;

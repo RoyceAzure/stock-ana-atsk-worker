@@ -1,0 +1,6 @@
+apiVersion: v2
+name: db-migrate
+description: Sexy Stock 資料庫 schema migration（golang-migrate）
+type: application
+version: 0.1.0
+appVersion: "4.18.1"

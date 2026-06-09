@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_trade_price_code_candle_time;

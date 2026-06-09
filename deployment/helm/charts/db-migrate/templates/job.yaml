@@ -1,0 +1,67 @@
+{{- $pgRelease := .Values.postgres.releaseName -}}
+{{- $pgHost := printf "%s-postgres" $pgRelease -}}
+{{- $pgSecret := .Values.postgres.secretName | default (printf "%s-postgres-secret" $pgRelease) -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-db-migrate
+  labels:
+    app: db-migrate
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.job.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.job.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        app: db-migrate
+    spec:
+      restartPolicy: Never
+      {{- if .Values.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecretName }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-postgres
+          image: {{ .Values.wait.image }}
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ $pgHost }} 5432; do
+                echo "waiting for postgres at {{ $pgHost }}:5432..."
+                sleep 2
+              done
+      containers:
+        - name: migrate
+          image: {{ .Values.migrate.image }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              migrate -path=/migrations \
+                -database "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DB}?sslmode=disable" \
+                up
+          env:
+            - name: POSTGRES_HOST
+              value: {{ $pgHost | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $pgSecret }}
+                  key: postgres-password
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+      volumes:
+        - name: migrations
+          configMap:
+            name: {{ .Release.Name }}-db-migrations

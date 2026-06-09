@@ -1,0 +1,1 @@
+ALTER TABLE backtest_scheduler_task DROP COLUMN used_process_pool;

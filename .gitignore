@@ -77,6 +77,9 @@ docs/_build/
 profile_default/
 ipython_config.py
 
+# Helm db-migrate chart 部署時從 deployment/db/migrations 複製的暫存目錄
+deployment/helm/charts/db-migrate/migrations/
+
 # Environments
 .env
 .venv

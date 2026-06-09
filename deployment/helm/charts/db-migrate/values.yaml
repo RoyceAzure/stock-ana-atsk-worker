@@ -1,0 +1,19 @@
+migrate:
+  image: migrate/migrate:v4.18.1
+
+wait:
+  image: busybox:1.36
+
+# 對應 postgres chart 的 release 名稱（同 namespace 內）
+postgres:
+  releaseName: dev
+  database: sexy_stock
+  username: postgres
+  # secret 由 postgres chart 建立：{releaseName}-postgres-secret
+  secretName: ""
+
+imagePullSecretName: ""
+
+job:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600

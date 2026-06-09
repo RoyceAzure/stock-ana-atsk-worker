@@ -1,0 +1,1 @@
+ALTER TABLE task_event DROP COLUMN used_process_pool;
