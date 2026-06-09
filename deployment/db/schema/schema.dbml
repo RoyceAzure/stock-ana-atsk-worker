@@ -1,0 +1,14 @@
+// Sexy Stock — database schema (DBML)
+//
+// 視覺化：https://dbdiagram.io （貼上此檔或整個 schema/ 目錄內容）
+// DDL 真實來源：../migrations/（golang-migrate）
+//
+// 目錄結構：
+//   schema.dbml      ← 入口（Include 其他檔案）
+//   enums.dbml       ← PostgreSQL ENUM
+//   refs.dbml        ← 跨表 Ref（外鍵）
+//   tables/*.dbml    ← 各資料表
+
+Include 'enums.dbml'
+Include 'tables/task_event.dbml'
+Include 'refs.dbml'

@@ -1,0 +1,14 @@
+// PostgreSQL ENUM types
+// 新增 enum 時在此檔案擴充，並於 tables/*.dbml 引用
+
+Enum task_status {
+  pending
+  running
+  completed
+  failed
+}
+
+Enum trigger_type {
+  manaual [note: 'DB 實際拼字（migration 000011 保留）']
+  scheduled
+}

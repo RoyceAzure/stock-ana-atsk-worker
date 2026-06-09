@@ -1,0 +1,4 @@
+// 跨表外鍵關聯（待各 table 的 .dbml 建立後，在此集中定義 Ref）
+//
+// 範例（待 test_result.dbml 完成後取消註解）：
+// Ref: test_result.task_event_id > task_event.id [delete: no action, update: no action]
