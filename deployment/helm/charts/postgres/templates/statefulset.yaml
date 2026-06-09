@@ -16,6 +16,12 @@ spec:
       labels:
         app: postgres
     spec:
+      {{- if .Values.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecretName }}
+      {{- end }}
+      securityContext:
+        fsGroup: 999
       containers:
         - name: postgres
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -33,10 +39,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Release.Name }}-postgres-secret
                   key: postgres-password
-          # 啟動指令與效能調校參數
-          command:
-            - postgres
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          # 保留映像 entrypoint，僅覆寫 CMD 傳入效能調校參數
           args:
+            - postgres
             - "-c"
             - "shared_buffers={{ .Values.postgresql.shared_buffers }}"
             - "-c"

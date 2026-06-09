@@ -3,6 +3,9 @@ image:
   repository: ghcr.io/royceazure/sexy_stock/postgres
   tag: dev-latest
 
+# 私有 GHCR 映像 pull secret（本地由 Makefile 建立，GCP 可留空）
+imagePullSecretName: ""
+
 # 資料庫核心設定與效能調校
 postgresql:
   database: "sexy_stock"
