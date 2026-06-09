@@ -8,9 +8,6 @@ from core.error.task_error import  TransientError, PermanentError
 
 logger = logging.getLogger(__name__)
 
-
-
-
 class ITaskCoordinator(Protocol):
     """任務協調器
     

@@ -4,7 +4,6 @@ import logging
 from typing import Any, BinaryIO, Optional, Tuple, Union
 from .base import DataSaver
 from pandas import DataFrame
-from plotly.graph_objects import Figure
 from infra.repo.minio_dao import MinioConfig, conn_minio
 
 class MinioSaver(DataSaver):
@@ -120,7 +119,3 @@ class MinioSaver(DataSaver):
             
         except Exception as e:
             return None, str(e)
-                        
-    
-    def save_svg(self, full_path: str, fig: Figure, **kwargs) -> Tuple[Optional[Any], Optional[str]]:
-        raise NotImplementedError("method not implemented")

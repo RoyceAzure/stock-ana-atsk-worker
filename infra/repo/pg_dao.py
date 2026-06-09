@@ -8,9 +8,8 @@ import uuid
 import psycopg2
 from psycopg2 import OperationalError
 from psycopg2.pool import ThreadedConnectionPool
-from pydantic import Field, Json
 import psycopg2.extensions
-
+from pydantic import Field, Json
 from models.basemodel import BaseModelWithConfig
 
 

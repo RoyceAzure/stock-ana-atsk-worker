@@ -1,6 +1,6 @@
 import time
 import logging
-from typing import Protocol
+from typing import Any, Dict, Optional, Protocol
 from core.life_cycle.lifecycle import shutdown_event
 from google.cloud import pubsub_v1
 from google.api_core import retry
@@ -105,7 +105,7 @@ class GCPMessageConsumer(IMessageConsumer):
                     task_id = msg.message.data.decode("utf-8")
 
                     # 1. 執行 DB UPDATE RETURNING (原子性 Claim)
-                    payload = db_claim_task(task_id)
+                    payload = self.db_claim_task(task_id)
                     
                     if not payload:
                         # Claim 失敗 (已被領走) -> 發送 ACK (丟棄)
@@ -142,14 +142,7 @@ class GCPMessageConsumer(IMessageConsumer):
 
         logging.info("[Shutdown] Worker 優雅退出 (Exit 0)")
 
-# ==========================================
-# 以下為抽象的 DB 與邏輯處理函式
-# ==========================================
-def db_claim_task(task_id: str) -> dict:
-    """
-    實作: UPDATE task_metadata SET status='RUNNING' WHERE id=X AND status='PENDING' RETURNING payload
-    回傳 payload dict，若已被領走則回傳 None
-    """
-    return {"code": ["1103", "1104"], "query_mode": 2} # Mock
+    def db_claim_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        return self.db_dao.db_claim_task(task_id)
 
 

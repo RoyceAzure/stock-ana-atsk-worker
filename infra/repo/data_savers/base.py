@@ -3,8 +3,6 @@ import datetime
 import json
 from typing import Any, BinaryIO, Dict, List, Tuple, Optional, Union
 from pandas import DataFrame
-from plotly.graph_objects import Figure
-
 from models.backtest import FilePaths
 from models.strategy.base import TestResult
 from util.util import util
@@ -41,19 +39,6 @@ class DataSaver(ABC):
         """
         pass
     
-    @abstractmethod
-    def save_svg(self, full_path: str, fig: Figure, **kwargs) -> Tuple[Optional[Any], Optional[str]]:
-        """ save go.Figure to svg file
-
-        Args:
-            full_path (str): 儲存路徑
-            fig (go.Figure): 儲存測試結果圖片
-
-        Returns:
-            Tuple[Optional[Any], Optional[str]]: 返回儲存路徑, 可能得錯誤訊息
-        """
-        pass
-
 def extract_data_model_info(data: TestResult) -> Dict[str,str]:
     """
     提取資料模型資訊
