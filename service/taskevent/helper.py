@@ -11,16 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 class TaskEventHelper(Protocol):
-    """處理Task event 領域相關邏輯 資料前處理，以及後續處理"""
-    def decode_message(self, messages: List[Dict[str, Any]]) -> Tuple[List[TaskEvent], List[str], List[str]]:
-        """解碼資料
-        Args:
-            messages: sqs consumer 回傳的資料列表
-        
-        Returns:
-            Tuple[List[TaskEvent], List[str]]: 解碼後的資料列表和刪除用的ReceiptHandle資料列表
-        """
-        ...
     def handle_success(self, result: TaskResult, stage: EventStage) -> None:
         """處理任務成功完成的情況
         
@@ -59,35 +49,6 @@ class TaskEventHelper:
     """處理Task event 領域相關邏輯 資料前處理，以及後續處理 for sqs consumer"""
     def __init__(self, db_dao: DatabaseRepository):
         self.db_dao = db_dao
-        
-    def decode_message(self, messages: List[Dict[str, Any]]) -> Tuple[List[TaskEvent], List[str], List[str]]:
-        """解碼資料
-        
-        Args:
-            messages: sqs consumer 回傳的資料列表
-        
-        Returns:
-            Tuple[List[TaskEvent], List[str], List[str]]: 
-            1. 解碼後的資料列表
-            2. 刪除用的ReceiptHandle資料列表
-            3. 解析失敗的ReceiptHandle資料列表
-        """
-        task_events = []
-        receipt_handles = []
-        failed_receipt_handles = []
-        for msg in messages:
-            #解析消息
-            try:
-                body = msg['Body']
-                task_event = self._get_task_event(body)
-                logger.info(f"收到任務: {task_event.id}")
-                task_events.append(task_event)
-                receipt_handles.append(msg['ReceiptHandle'])
-            except Exception as e:
-                logger.error(f"解析任務失敗: {e}")
-                failed_receipt_handles.append(msg['ReceiptHandle'])
-
-        return task_events, receipt_handles, failed_receipt_handles
 
     def handle_success(self, result: TaskResult, stage: EventStage) -> None:
         """處理任務成功完成的情況，包括任務成功和任務失敗

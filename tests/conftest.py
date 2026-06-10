@@ -7,6 +7,8 @@ from psycopg2 import OperationalError
 
 from infra.repo.pg_dao import DBConfig, DatabaseRepository
 
+pytest_plugins = ["tests.mocks.conftest"]
+
 
 def _db_config() -> DBConfig:
     return DBConfig(
