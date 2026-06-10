@@ -6,7 +6,9 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import threading
 import uuid
 import psycopg2
+import psycopg2.extras
 from psycopg2 import OperationalError
+from psycopg2.extras import execute_values
 from psycopg2.pool import ThreadedConnectionPool
 import psycopg2.extensions
 from pydantic import Field, Json
