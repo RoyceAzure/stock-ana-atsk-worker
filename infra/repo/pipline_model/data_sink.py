@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Tuple, Optional, TypeVar, Generic
 import pandas as pd
-from models.pipline_model.pipline_params import SinkParams
+from models.pipline_model.pipline_params import SinkLocationType, SinkParams
 
 T = TypeVar("T", pd.DataFrame)
 
