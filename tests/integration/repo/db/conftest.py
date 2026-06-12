@@ -3,7 +3,7 @@ from typing import Generator
 import psycopg2.extensions
 import pytest
 
-PYTEST_TRIGGERED_BY = "pytest"
+from tests.integration.repo.db.task_event_factory import PYTEST_TRIGGERED_BY, TaskEventFactory
 
 
 def _delete_pytest_task_events(conn: psycopg2.extensions.connection) -> None:
@@ -22,3 +22,12 @@ def cleanup_task_event_test_data(
     _delete_pytest_task_events(db_conn)
     yield
     _delete_pytest_task_events(db_conn)
+
+
+@pytest.fixture
+def task_event_factory(
+    db_conn: psycopg2.extensions.connection,
+) -> Generator[TaskEventFactory, None, None]:
+    factory = TaskEventFactory(db_conn)
+    yield factory
+    factory.cleanup()

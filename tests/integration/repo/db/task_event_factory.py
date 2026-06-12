@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Optional
 
 import psycopg2.extensions
 
+PYTEST_TRIGGERED_BY = "pytest"
+
 
 def build_task_event_row(
     *,
@@ -23,7 +25,7 @@ def build_task_event_row(
         "tpsl_params": None,
         "saver_params": json.dumps({"saver_name": "local", "saver_base_path": "/tmp"}),
         "trigger_type": "manaual",
-        "triggered_by": "pytest",  # 與 tests/integration/conftest.py 的清理條件一致
+        "triggered_by": PYTEST_TRIGGERED_BY,
         "event_name": "preprocessing",
         "event_stage": "init",
         "used_process_pool": False,

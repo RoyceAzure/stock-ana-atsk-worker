@@ -1,23 +1,12 @@
 import uuid
-from typing import Generator
 
 import psycopg2.extensions
 import pytest
 
 from infra.repo.pg_dao import DatabaseRepository
-from tests.integration.task_event_factory import TaskEventFactory
-
+from tests.integration.repo.db.task_event_factory import TaskEventFactory
 
 pytestmark = pytest.mark.integration
-
-
-@pytest.fixture
-def task_event_factory(
-    db_conn: psycopg2.extensions.connection,
-) -> Generator[TaskEventFactory, None, None]:
-    factory = TaskEventFactory(db_conn)
-    yield factory
-    factory.cleanup()
 
 
 class TestDbClaimTask:
