@@ -2,7 +2,7 @@ import datetime
 import hashlib
 import json
 
-def get_utc_day_range(target_date: datetime = None) -> tuple[datetime, datetime]:
+def get_utc_day_range(target_date: datetime.datetime | None = None) -> tuple[datetime.datetime, datetime.datetime]:
     """
     回傳給定日期（預設為今天）的 UTC 起點與終點 datetime。
     """

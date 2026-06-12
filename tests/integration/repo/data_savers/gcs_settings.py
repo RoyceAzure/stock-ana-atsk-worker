@@ -5,8 +5,8 @@ from infra.repo.data_savers.object_storage_saver import ObjectStorageSaver
 from infra.repo.object_storage import ObjectStorageConfig, StorageBackend
 
 # --- 請填入 GCS 測試參數（環境變數可覆蓋）---
-GCS_TEST_BUCKET = ""  # e.g. "my-test-bucket"
-GCS_TEST_PREFIX = "pytest/object-storage-saver"
+GCS_TEST_BUCKET = "sexy_stock_test"  # e.g. "my-test-bucket"
+GCS_TEST_PREFIX = "test/reoo"
 GCS_TEST_USE_ADC = True
 GCS_HMAC_ACCESS_KEY = ""
 GCS_HMAC_SECRET_KEY = ""

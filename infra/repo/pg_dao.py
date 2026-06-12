@@ -280,9 +280,9 @@ class TestResultEntity(BaseModelWithConfig):
     tester_params: Json[Dict[str, Any]] = Field(..., description="測試器參數 JSON 區塊，包含回測測試器的相關設定")
     summary: Json[Dict[str, Any]] = Field(..., description="回測結果摘要 JSON 區塊，包含回測的總體績效指標")
     file: Json[Dict[str, Any]] = Field(..., description="檔案資訊 JSON 區塊，包含回測結果相關檔案的路徑")
-    completed_at: datetime = Field(..., description="回測完成時間")
-    created_at: datetime = Field(..., description="資料建立時間")
-    updated_at: datetime = Field(..., description="資料最後更新時間")
+    completed_at: datetime.datetime = Field(..., description="回測完成時間")
+    created_at: datetime.datetime = Field(..., description="資料建立時間")
+    updated_at: datetime.datetime = Field(..., description="資料最後更新時間")
     
     
 class TestResultUpsertParams(BaseModelWithConfig):
@@ -291,8 +291,8 @@ class TestResultUpsertParams(BaseModelWithConfig):
     tester_params: Json[Dict[str, Any]] = Field(..., description="測試器參數 JSON 區塊，包含回測測試器的相關設定")
     summary: Json[Dict[str, Any]] = Field(..., description="回測結果摘要 JSON 區塊，包含回測的總體績效指標")
     file: Json[Dict[str, Any]] = Field(..., description="檔案資訊 JSON 區塊，包含回測結果相關檔案的路徑")
-    completed_at: datetime = Field(..., description="回測完成時間")
-    updated_at: datetime = Field(..., description="資料最後更新時間")
+    completed_at: datetime.datetime = Field(..., description="回測完成時間")
+    updated_at: datetime.datetime = Field(..., description="資料最後更新時間")
     task_event_id: uuid.UUID = Field(..., description="執行此任務的task event id")
 
 

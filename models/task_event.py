@@ -4,11 +4,9 @@ from typing import Any, Dict, Optional
 import uuid
 from pydantic import Field
 from models.basemodel import BaseModelWithConfig
-from models.strategy.base import SourceMetaData, TPSLParms
 from models.pipline_model.pipline_params import SinkParams
 from models.scheduler_config import TriggerType
-from models.strategy.base import SaverParams
-
+from models.strategy.base import SaverParams, TPSLParms
 
 class TaskEventStatus(Enum):
 	TaskStatusPending    = "pending"
@@ -30,8 +28,27 @@ class EventName(Enum):
     FULLBACKTEST  = "full_backtest"
     BUY_SELL_MARK  = "buy_sell_mark"
     SIMILARITY = "similarity"
- 
- 
+
+class SourceMetaData(BaseModelWithConfig):
+    """ todo start time, end time要根據candle轉換日期格式
+    """
+    code: Optional[str]
+    candle: Optional[str]
+    start_time: Optional[datetime.datetime] = Field(default=None, description="整體資料開始時間，此時間有可能是經過策略延長的資料時間，並非使用者真實的測試範圍")
+    end_time: Optional[datetime.datetime] = Field(default=None, description="整體資料結束時間")
+    true_start_time: Optional[datetime.datetime] = Field(default=None, description="真實的資料開始時間，使用者真實的測試起始時間")
+    window_size: Optional[int] = Field(default=None, description="策略需要的資料窗口大小，單位為天數")
+
+    def as_dict(self, date_format='%Y-%m-%d') -> dict:
+        return {
+            'code': self.code if self.code else None,
+            'candle': self.candle if self.candle else None,
+            'start_time': self.start_time.strftime(date_format) if self.start_time else None,
+            'end_time': self.end_time.strftime(date_format) if self.end_time else None,
+            'true_start_time': self.true_start_time.strftime(date_format) if self.true_start_time else None,
+            'window_size': self.window_size if self.window_size is not None else None
+        }
+
 class TaskEvent(BaseModelWithConfig):
     """
     所有任務通用模型

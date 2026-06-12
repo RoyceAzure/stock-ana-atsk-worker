@@ -1,5 +1,17 @@
-from datetime import datetime
-from pydantic import BaseModel, ConfigDict
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, model_serializer
+
+
+def _decode_bytes_recursive(obj: Any) -> Any:
+    if isinstance(obj, bytes):
+        return obj.decode("utf-8")
+    if isinstance(obj, dict):
+        return {k: _decode_bytes_recursive(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_decode_bytes_recursive(v) for v in obj]
+    return obj
+
 
 class BaseModelWithConfig(BaseModel):
     model_config = ConfigDict(
@@ -7,11 +19,11 @@ class BaseModelWithConfig(BaseModel):
         validate_assignment=True,  # 賦值時進行驗證
         extra='forbid',  # 禁止額外字段
         arbitrary_types_allowed=True,  # 允許任意類型
-        json_encoders={  # 添加常用類型的 JSON 編碼器
-            datetime: lambda v: v.isoformat(),
-            bytes: lambda v: v.decode('utf-8')
-        }
     )
+
+    @model_serializer(mode="wrap", when_used="json")
+    def _serialize_for_json(self, handler):
+        return _decode_bytes_recursive(handler(self))
 
     def as_dict(self, exclude_none: bool = True):
         """

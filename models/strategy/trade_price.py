@@ -3,7 +3,8 @@ from typing import Any, Dict
 from pandas import DataFrame
 from pydantic import Field
 from models.basemodel import BaseModelWithConfig
-from models.strategy.base import DataModel, SourceMetaData
+from models.task_event import SourceMetaData
+from strategy.base import DataModel
 
 
 class TradePriceMeta(BaseModelWithConfig):

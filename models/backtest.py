@@ -2,7 +2,9 @@ from typing import Any, Dict, NamedTuple, Optional
 from pydantic import Field
 from models.basemodel import BaseModelWithConfig
 from models.scheduler_config import TriggerType
-from models.strategy.base import SaverParams, SourceMetaData, StrategyParms, TPSLParms
+from models.task_event import SourceMetaData
+from models.strategy.base import TPSLParms, SaverParams
+from strategy.base import StrategyParms
 
 class Summary(BaseModelWithConfig):
     total_return: str

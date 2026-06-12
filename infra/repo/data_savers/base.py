@@ -4,8 +4,8 @@ import json
 from typing import Any, BinaryIO, Dict, List, Tuple, Optional, Union
 from pandas import DataFrame
 from models.backtest import FilePaths
-from models.strategy.base import TestResult
-from util.util import util
+from models.test_result import TestResult
+import util.generate_util as generate_util
 
 class DataSaver(ABC):
     trade_result_default_column : List[str] = [
@@ -78,7 +78,7 @@ def prepare_save_file_key(data: TestResult) -> str:
     } | extract_data_model_info(data) | \
         data.tester_params
         
-    return  util.generate_deterministic_key(key_dict) + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S") # 加上微秒級時間搓
+    return generate_util.generate_deterministic_key(key_dict) + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S") # 加上微秒級時間搓
 
 
 def prepare_save_file_path(base_path: str, data: TestResult) -> FilePaths:
