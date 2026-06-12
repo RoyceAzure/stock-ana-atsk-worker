@@ -2,9 +2,7 @@ import logging
 import threading
 from queue import Empty, Queue
 from typing import Optional
-
 import duckdb
-
 from infra.repo.object_storage import ObjectStorageConfig, StorageBackend
 
 

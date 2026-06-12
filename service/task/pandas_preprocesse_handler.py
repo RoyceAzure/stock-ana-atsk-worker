@@ -3,7 +3,7 @@ import duckdb
 import psycopg2
 from models.task_event import EventStage, TaskEvent
 from service.pipline.pandas_trade_price_pipline import get_pandas_pre_process_pipline
-from infra.repo.data_meger.s3_parquet_meger import S3ParquetMerger
+from infra.repo.data_meger.s3_parquet_meger import BlobParquetMerger
 from models.pipline_model.pipline_params import SinkParams
 from service.task.handler import TaskHandler
 
@@ -19,7 +19,7 @@ class PreProcessPandasTaskProcessor(TaskHandler):
             最安全起見，請確保同一個code + candle 同時只有一個實例在跑
     
     """
-    def __init__(self, pg_conn: psycopg2.extensions.connection, duckdb_conn: duckdb.DuckDBPyConnection, parquet_meger: S3ParquetMerger):
+    def __init__(self, pg_conn: psycopg2.extensions.connection, duckdb_conn: duckdb.DuckDBPyConnection, parquet_meger: BlobParquetMerger):
         self.super.__init__(EventStage.PRE_STAGE)
         self.pg_conn = pg_conn
         self.duckdb_conn = duckdb_conn

@@ -5,7 +5,7 @@ from infra.repo.duckdb_manager import DuckDBManager
 from infra.repo.object_storage import ObjectStorageConfig, strip_uri_scheme, to_duckdb_uri
 
 
-class S3ParquetMerger:
+class BlobParquetMerger:
     """
         物件儲存 Parquet 合併工具（支援 S3 / MinIO / GCS）。
 

@@ -157,9 +157,9 @@ def create_filesystem(config: ObjectStorageConfig) -> Any:
 
 
 def create_parquet_merger(bucket_base_path: str, storage_config: ObjectStorageConfig):
-    from infra.repo.data_meger.s3_parquet_meger import S3ParquetMerger
+    from infra.repo.data_meger.s3_parquet_meger import BlobParquetMerger
 
-    return S3ParquetMerger(
+    return BlobParquetMerger(
         create_filesystem(storage_config),
         bucket_base_path,
         storage_config,
