@@ -167,6 +167,17 @@ def create_parquet_merger(bucket_base_path: str, storage_config: ObjectStorageCo
     )
 
 
+def create_parquet_helper(bucket_base_path: str, storage_config: ObjectStorageConfig):
+    from infra.repo.data_helper.blob_parquet_helper import BlobParquetDataHelper
+    from infra.repo.duckdb.factory import from_env
+
+    return BlobParquetDataHelper(
+        create_filesystem(storage_config),
+        bucket_base_path,
+        from_env(storage_config.backend),
+    )
+
+
 def location_to_backend(location: str) -> StorageBackend:
     mapping = {
         "minio": StorageBackend.MINIO,
