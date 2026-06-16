@@ -158,11 +158,12 @@ def create_filesystem(config: ObjectStorageConfig) -> Any:
 
 def create_parquet_merger(bucket_base_path: str, storage_config: ObjectStorageConfig):
     from infra.repo.data_meger.s3_parquet_meger import BlobParquetMerger
+    from infra.repo.duckdb.factory import from_env
 
     return BlobParquetMerger(
         create_filesystem(storage_config),
         bucket_base_path,
-        storage_config,
+        from_env(storage_config.backend),
     )
 
 

@@ -1,8 +1,8 @@
 import logging
 from collections import Counter
 from typing import Any, Dict, List
+from infra.repo.duckdb.config import DuckDBStorageConfig, strip_uri_scheme
 from infra.repo.duckdb_manager import DuckDBManager
-from infra.repo.object_storage import ObjectStorageConfig, strip_uri_scheme, to_duckdb_uri
 
 
 class BlobParquetMerger:
@@ -27,16 +27,16 @@ class BlobParquetMerger:
         self,
         fs: Any,
         bucket_base_path: str,
-        storage_config: ObjectStorageConfig,
+        duckdb_config: DuckDBStorageConfig,
     ):
         self.duckdb_con = DuckDBManager.get_conn()
         self.fs = fs
-        self.storage_config = storage_config
+        self.duckdb_config = duckdb_config
         self.base_path = strip_uri_scheme(bucket_base_path)
         self.logger = logging.getLogger(__name__)
 
     def _duck_uri(self, path: str) -> str:
-        return to_duckdb_uri(self.storage_config, path)
+        return self.duckdb_config.to_uri(path)
 
     def _fs_uri(self, path: str) -> str:
         return self._duck_uri(path)

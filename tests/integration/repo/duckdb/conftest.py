@@ -1,17 +1,23 @@
 import os
 import uuid
+from pathlib import Path
 from typing import Generator, List
 
 import duckdb
 import pytest
+from dotenv import load_dotenv
 
+from infra.repo.duckdb.gcs_config import GcsDuckDBConfig
 from infra.repo.duckdb_manager import DuckDBManager
 from infra.repo.object_storage import ObjectStorageConfig, StorageBackend, create_filesystem, to_fs_uri
 
-# --- DuckDB GCS 整合測試參數（環境變數可覆蓋）---
-GCS_TEST_BUCKET = "sexy_stock_test"  # e.g. "my-test-bucket"
+_PROJECT_ROOT = Path(__file__).resolve().parents[4]
+load_dotenv(_PROJECT_ROOT / ".env", override=False)
+
+# --- DuckDB GCS 整合測試參數（環境變數或 .env 可覆蓋）---
+# 憑證：GCS_HMAC_ACCESS_KEY / GCS_HMAC_SECRET_KEY（非 gcloud auth，需於 GCP 建立 HMAC 金鑰）
+GCS_TEST_BUCKET = "sexy_stock_test"
 GCS_TEST_PREFIX = "test/duckdb"
-GCS_TEST_USE_ADC = True
 GCS_HMAC_ACCESS_KEY = ""
 GCS_HMAC_SECRET_KEY = ""
 
@@ -24,16 +30,19 @@ def gcs_test_prefix() -> str:
     return os.getenv("GCS_TEST_PREFIX", GCS_TEST_PREFIX).strip().strip("/")
 
 
-def build_gcs_storage_config() -> ObjectStorageConfig:
-    use_adc = os.getenv("GCS_USE_ADC")
-    if use_adc is not None:
-        use_adc_flag = use_adc.lower() in {"1", "true", "yes", "on"}
-    else:
-        use_adc_flag = GCS_TEST_USE_ADC
+def build_gcs_duckdb_config() -> GcsDuckDBConfig:
+    access_key = os.getenv("GCS_HMAC_ACCESS_KEY", GCS_HMAC_ACCESS_KEY) or None
+    secret_key = os.getenv("GCS_HMAC_SECRET_KEY", GCS_HMAC_SECRET_KEY) or None
+    if not access_key or not secret_key:
+        raise ValueError("GCS HMAC 模式需設定 GCS_HMAC_ACCESS_KEY 與 GCS_HMAC_SECRET_KEY")
+    return GcsDuckDBConfig(hmac_access_key=access_key, hmac_secret_key=secret_key)
 
+
+def build_gcs_storage_config() -> ObjectStorageConfig:
+    """fsspec 用設定（HMAC + S3 互通）。"""
     return ObjectStorageConfig(
         backend=StorageBackend.GCS,
-        use_adc=use_adc_flag,
+        use_adc=False,
         access_key=os.getenv("GCS_HMAC_ACCESS_KEY", GCS_HMAC_ACCESS_KEY) or None,
         secret_key=os.getenv("GCS_HMAC_SECRET_KEY", GCS_HMAC_SECRET_KEY) or None,
     )
@@ -47,28 +56,26 @@ def track_gcs_path(created_paths: List[str], rel_path: str) -> None:
     created_paths.append(rel_path)
 
 
-def _ensure_gcs_credentials(config: ObjectStorageConfig) -> None:
-    if config.use_adc:
-        try:
-            import google.auth
-
-            _, project = google.auth.default()
-            print(f"[duckdb-gcs] ADC 憑證已取得，project={project}")
-        except Exception as exc:
-            msg = (
-                "GCS ADC 憑證取得失敗，請執行: gcloud auth application-default login"
-                f"（{exc}）"
-            )
-            print(f"[duckdb-gcs] {msg}")
-            pytest.skip(msg)
-        return
-
-    if not config.access_key or not config.secret_key:
-        msg = "GCS HMAC 模式需設定 GCS_HMAC_ACCESS_KEY 與 GCS_HMAC_SECRET_KEY"
+def _ensure_gcs_hmac_credentials() -> None:
+    access_key = os.getenv("GCS_HMAC_ACCESS_KEY", GCS_HMAC_ACCESS_KEY)
+    secret_key = os.getenv("GCS_HMAC_SECRET_KEY", GCS_HMAC_SECRET_KEY)
+    if not access_key or not secret_key:
+        msg = "DuckDB GCS 測試需設定 GCS_HMAC_ACCESS_KEY 與 GCS_HMAC_SECRET_KEY"
         print(f"[duckdb-gcs] {msg}")
         pytest.skip(msg)
 
     print("[duckdb-gcs] HMAC 金鑰已設定")
+
+
+@pytest.fixture(scope="module")
+def gcs_duckdb_config() -> GcsDuckDBConfig:
+    if not gcs_test_bucket():
+        msg = "請設定 GCS_TEST_BUCKET（tests/integration/repo/duckdb/conftest.py 或環境變數）"
+        print(f"[duckdb-gcs] {msg}")
+        pytest.skip(msg)
+
+    _ensure_gcs_hmac_credentials()
+    return build_gcs_duckdb_config()
 
 
 @pytest.fixture(scope="module")
@@ -78,14 +85,13 @@ def gcs_storage_config() -> ObjectStorageConfig:
         print(f"[duckdb-gcs] {msg}")
         pytest.skip(msg)
 
-    config = build_gcs_storage_config()
-    _ensure_gcs_credentials(config)
-    return config
+    _ensure_gcs_hmac_credentials()
+    return build_gcs_storage_config()
 
 
 @pytest.fixture(scope="module")
-def duckdb_manager_gcs(gcs_storage_config: ObjectStorageConfig) -> Generator[None, None, None]:
-    DuckDBManager.initialize(gcs_storage_config, pool_size=2)
+def duckdb_manager_gcs(gcs_duckdb_config: GcsDuckDBConfig) -> Generator[None, None, None]:
+    DuckDBManager.initialize(gcs_duckdb_config, pool_size=2)
     yield
     DuckDBManager.close_all()
 
