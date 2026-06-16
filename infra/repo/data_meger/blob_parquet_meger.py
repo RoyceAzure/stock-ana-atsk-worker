@@ -2,10 +2,27 @@ import logging
 from collections import Counter
 from typing import Any, Dict, List
 
+import duckdb
+
 from infra.repo.duckdb.config import DuckDBStorageConfig, strip_uri_scheme
 from infra.repo.duckdb_manager import DuckDBManager
 
 logger = logging.getLogger(__name__)
+
+_MAX_MERGE_RETRIES = 2
+_RETRIABLE_MERGE_ERROR_KEYWORDS = (
+    "invalidated",
+    "internal error",
+    "integer cast",
+)
+
+
+def _is_retriable_merge_error(exc: Exception) -> bool:
+    if isinstance(exc, duckdb.Error):
+        msg = str(exc).lower()
+        return any(keyword in msg for keyword in _RETRIABLE_MERGE_ERROR_KEYWORDS)
+    msg = str(exc).lower()
+    return any(keyword in msg for keyword in _RETRIABLE_MERGE_ERROR_KEYWORDS)
 
 
 class BlobParquetMerger:
@@ -43,13 +60,30 @@ class BlobParquetMerger:
     def _fs_uri(self, path: str) -> str:
         return self._duck_uri(path)
 
-    def merge_single(self, code: str, candle: str):
-        logger.info(f"Merging {code} {candle}...")
+    def _list_merge_sources(self, code: str, candle: str) -> List[str]:
+        return self.fs.glob(f"{self.base_path}/{code}_{candle}_*/*.parquet")
+
+    def merge_single(self, code: str, candle: str) -> None:
+        sources = self._list_merge_sources(code, candle)
+        if not sources:
+            logger.info(
+                "No source parquet for merge, skip: code=%s candle=%s",
+                code,
+                candle,
+            )
+            return
+
         source_query = self._duck_uri(f"{self.base_path}/{code}_{candle}_*/*.parquet")
-        max_retries = 2
-        attempt = 0
-        temp_path = ""
-        while attempt <= max_retries:
+
+        for attempt in range(_MAX_MERGE_RETRIES + 1):
+            temp_path = ""
+            logger.info(
+                "Merging code=%s candle=%s attempt=%s source_count=%s",
+                code,
+                candle,
+                attempt,
+                len(sources),
+            )
             with self.duckdb_con.cursor() as con:
                 try:
                     df = con.execute(
@@ -90,33 +124,41 @@ class BlobParquetMerger:
                     for old in self.fs.glob(f"{self.base_path}/{code}_{candle}_*.parquet"):
                         if old.rstrip("/") != final_path.rstrip("/"):
                             self.fs.rm(old, recursive=True)
-                    logger.info(f"Merged {code} to {final_path}")
+                    logger.info(
+                        "Merged code=%s candle=%s to %s",
+                        code,
+                        candle,
+                        final_path,
+                    )
                     return
                 except Exception as e:
-                    error_msg = str(e).lower()
-                    logger.error(f"Merge error: {error_msg}")
-                    is_fatal = (
-                        "invalidated" in error_msg
-                        or "internal error" in error_msg
-                        or "integer cast" in error_msg
+                    can_retry = _is_retriable_merge_error(e) and attempt < _MAX_MERGE_RETRIES
+                    logger.error(
+                        "Merge error code=%s candle=%s attempt=%s retriable=%s: %s",
+                        code,
+                        candle,
+                        attempt,
+                        can_retry,
+                        e,
                     )
-                    if is_fatal and attempt < max_retries:
-                        attempt += 1
+                    if can_retry:
                         DuckDBManager.return_and_delete(self.duckdb_con)
                         self.duckdb_con = DuckDBManager.get_conn()
                         continue
-                    logger.error("merge failed after max retries, skip this merge")
+                    logger.error(
+                        "Merge failed, skip: code=%s candle=%s",
+                        code,
+                        candle,
+                        exc_info=True,
+                    )
+                    return
                 finally:
                     if temp_path and self.fs.exists(temp_path):
                         self.fs.rm(temp_path, recursive=True)
                     try:
-                        logger.info("duck db shrink memory start")
                         con.execute("PRAGMA shrink_memory();")
                     except Exception:
                         pass
-                    logger.info("duck db shrink memory end")
-        return None, "超過最大重試次數"
-
     def batch_merge(self, task_list: List[Dict[str, str]]):
         for task in task_list:
             self.merge_single(task["code"], task["candle"])
