@@ -3,7 +3,7 @@ import duckdb
 import psycopg2
 from models.task_event import EventStage, TaskEvent
 from service.pipline.pandas_trade_price_pipline import get_pandas_pre_process_pipline
-from infra.repo.data_meger.s3_parquet_meger import BlobParquetMerger
+from infra.repo.data_meger.blob_parquet_meger import BlobParquetMerger
 from models.pipline_model.pipline_params import SinkParams
 from service.task.handler import TaskHandler
 

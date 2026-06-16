@@ -1,8 +1,11 @@
 import logging
 from collections import Counter
 from typing import Any, Dict, List
+
 from infra.repo.duckdb.config import DuckDBStorageConfig, strip_uri_scheme
 from infra.repo.duckdb_manager import DuckDBManager
+
+logger = logging.getLogger(__name__)
 
 
 class BlobParquetMerger:
@@ -33,7 +36,6 @@ class BlobParquetMerger:
         self.fs = fs
         self.duckdb_config = duckdb_config
         self.base_path = strip_uri_scheme(bucket_base_path)
-        self.logger = logging.getLogger(__name__)
 
     def _duck_uri(self, path: str) -> str:
         return self.duckdb_config.to_uri(path)
@@ -52,7 +54,7 @@ class BlobParquetMerger:
             for obj_path in all_files:
                 try:
                     if not self.fs.exists(obj_path):
-                        self.logger.info(f"Skip cleaning missing object {obj_path}")
+                        logger.info(f"Skip cleaning missing object {obj_path}")
                         continue
 
                     duck_path = self._duck_uri(obj_path)
@@ -81,15 +83,15 @@ class BlobParquetMerger:
                         self.fs.rm(obj_path, recursive=False)
                     self.fs.move(temp_obj_path, obj_path)
 
-                    self.logger.info(
+                    logger.info(
                         f"Cleaned invalid columns {sorted(cols_to_drop)} from {obj_path}"
                     )
                 except Exception as e:
                     msg = str(e)
                     if "404" in msg or "Not Found" in msg:
-                        self.logger.info(f"Skip cleaning {obj_path} (already removed / 404): {e}")
+                        logger.info(f"Skip cleaning {obj_path} (already removed / 404): {e}")
                     else:
-                        self.logger.error(f"Error cleaning {obj_path}: {e}")
+                        logger.error(f"Error cleaning {obj_path}: {e}")
 
     def rename_columns(self, rename_map: Dict[str, str]):
         """將所有 parquet 檔案中的欄位做批次改名。rename_map: {old_name: new_name}"""
@@ -102,7 +104,7 @@ class BlobParquetMerger:
             for obj_path in all_files:
                 try:
                     if not self.fs.exists(obj_path):
-                        self.logger.info(f"Skip renaming on missing object {obj_path}")
+                        logger.info(f"Skip renaming on missing object {obj_path}")
                         continue
 
                     duck_path = self._duck_uri(obj_path)
@@ -144,18 +146,18 @@ class BlobParquetMerger:
                         self.fs.rm(obj_path, recursive=False)
                     self.fs.move(temp_obj_path, obj_path)
 
-                    self.logger.info(
+                    logger.info(
                         f"Renamed columns {effective_map} in {obj_path}"
                     )
                 except Exception as e:
                     msg = str(e)
                     if "404" in msg or "Not Found" in msg:
-                        self.logger.info(f"Skip renaming {obj_path} (already removed / 404): {e}")
+                        logger.info(f"Skip renaming {obj_path} (already removed / 404): {e}")
                     else:
-                        self.logger.error(f"Error renaming {obj_path}: {e}")
+                        logger.error(f"Error renaming {obj_path}: {e}")
 
     def merge_single(self, code: str, candle: str):
-        self.logger.info(f"Merging {code} {candle}...")
+        logger.info(f"Merging {code} {candle}...")
         source_query = self._duck_uri(f"{self.base_path}/{code}_{candle}_*/*.parquet")
         max_retries = 2
         attempt = 0
@@ -201,11 +203,11 @@ class BlobParquetMerger:
                     for old in self.fs.glob(f"{self.base_path}/{code}_{candle}_*.parquet"):
                         if old.rstrip("/") != final_path.rstrip("/"):
                             self.fs.rm(old, recursive=True)
-                    self.logger.info(f"Merged {code} to {final_path}")
+                    logger.info(f"Merged {code} to {final_path}")
                     return
                 except Exception as e:
                     error_msg = str(e).lower()
-                    self.logger.error(f"Merge error: {error_msg}")
+                    logger.error(f"Merge error: {error_msg}")
                     is_fatal = (
                         "invalidated" in error_msg
                         or "internal error" in error_msg
@@ -216,16 +218,16 @@ class BlobParquetMerger:
                         DuckDBManager.return_and_delete(self.duckdb_con)
                         self.duckdb_con = DuckDBManager.get_conn()
                         continue
-                    self.logger.error("merge failed after max retries, skip this merge")
+                    logger.error("merge failed after max retries, skip this merge")
                 finally:
                     if temp_path and self.fs.exists(temp_path):
                         self.fs.rm(temp_path, recursive=True)
                     try:
-                        self.logger.info("duck db shrink memory start")
+                        logger.info("duck db shrink memory start")
                         con.execute("PRAGMA shrink_memory();")
                     except Exception:
                         pass
-                    self.logger.info("duck db shrink memory end")
+                    logger.info("duck db shrink memory end")
         return None, "超過最大重試次數"
 
     def batch_merge(self, task_list: List[Dict[str, str]]):
@@ -257,8 +259,8 @@ class BlobParquetMerger:
         ]
 
         if not task_list:
-            self.logger.info("沒有需要合併的資料（所有 {code, candle} 組合皆為單一來源）")
+            logger.info("沒有需要合併的資料（所有 {code, candle} 組合皆為單一來源）")
             return
 
-        self.logger.info(f"偵測到 {len(task_list)} 組 (code, candle) 有重複需合併...")
+        logger.info(f"偵測到 {len(task_list)} 組 (code, candle) 有重複需合併...")
         return self.batch_merge(task_list)
