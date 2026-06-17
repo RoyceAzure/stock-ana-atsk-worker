@@ -1,6 +1,6 @@
 import logging
 from collections import Counter
-from typing import Any, Dict, List
+from typing import Any, List, Tuple
 
 import duckdb
 
@@ -159,9 +159,9 @@ class BlobParquetMerger:
                         con.execute("PRAGMA shrink_memory();")
                     except Exception:
                         pass
-    def batch_merge(self, task_list: List[Dict[str, str]]):
-        for task in task_list:
-            self.merge_single(task["code"], task["candle"])
+    def batch_merge(self, task_list: List[Tuple[str, str]]):
+        for code, candle in task_list:
+            self.merge_single(code, candle)
 
     def merge_all_available_data(self):
         """合併舊有 {code, candle} 資料。僅當同一組合出現超過一次時才執行合併。"""
@@ -182,7 +182,7 @@ class BlobParquetMerger:
                 task_counts[(parts[0], parts[1])] += 1
 
         task_list = [
-            {"code": code, "candle": candle}
+            (code, candle)
             for (code, candle), count in task_counts.items()
             if count > 1
         ]

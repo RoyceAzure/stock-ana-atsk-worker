@@ -1,7 +1,7 @@
 import json
 from typing import Any, List, Optional, Tuple
 import pandas as pd
-from util.util import util
+from util.generate_util import format_date_to_utc_midnight
 from infra.repo.data_loaders.base import DataLoader
 
 class SQLLoader(DataLoader):
@@ -57,14 +57,14 @@ class SQLLoader(DataLoader):
 
             # Start Time 過濾
             if start_time is not None:
-                start_time = util.format_date_to_utc_midnight(start_time)
+                start_time = format_date_to_utc_midnight(start_time)
                 start_str = start_time.strftime("%Y-%m-%d %H:%M:%S")
                 filters.append(f"{filter_time_col} >= %s")
                 params.append(f"{start_str}+00")
 
             # End Time 過濾
             if end_time is not None:
-                end_time = util.format_date_to_utc_midnight(end_time)
+                end_time = format_date_to_utc_midnight(end_time)
                 end_str = end_time.strftime("%Y-%m-%d %H:%M:%S")
                 filters.append(f"{filter_time_col} <= %s")
                 params.append(f"{end_str}+00")

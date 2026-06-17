@@ -42,15 +42,13 @@ class PreProcessPandasTaskProcessor(TaskHandler):
             self.pg_conn,
             sink_params,
             task_event.source_meta_data.as_dict(),
-            self.duckdb_conn
+            self.duckdb_conn,
+            parquet_merger=self.parquet_meger,
         )
         
         _, err = pipline.run()
         if err is not None:
             raise PermanentError(err)
-
-        #warning: 此處使用S3ParquetMerger合併檔案，該模組有ConcurrencyRisk
-        return self.parquet_meger.merge_all_available_data()
 
     
     def _get_sink_params(self, task_event: TaskEvent) -> SinkParams:

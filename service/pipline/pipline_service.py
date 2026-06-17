@@ -1,6 +1,5 @@
-from ast import List
 from infra.repo.pipline_model.data_sink import IDataSink
-from typing import Callable, Tuple, Optional, TypeVar, Generic
+from typing import Callable, Tuple, Optional, TypeVar, Generic, List
 import pandas as pd
 from service.pipline.data_set import IDataSet
 
@@ -29,26 +28,31 @@ class PipelineStage(Generic[T]):
 class Pipline(Generic[T]):
     def __init__(self):
         self.stages: List[PipelineStage] = []
-        self.data_set : IDataSet = None
+        self.data_set: IDataSet = None
         self.data_sink: IDataSink = None
+        self.post_sink_actions: List[Callable[[T], Optional[str]]] = []
             
-    def set_data_set(self, data_set : IDataSet):
+    def set_data_set(self, data_set: IDataSet):
         self.data_set = data_set
         return self
     
-    def set_data_sink(self, data_sink : IDataSink):
+    def set_data_sink(self, data_sink: IDataSink):
         self.data_sink = data_sink
         return self
     
-    def add_stage(self, stage : PipelineStage):
+    def add_stage(self, stage: PipelineStage):
         self.stages.append(stage)
+        return self
+
+    def add_post_sink_action(self, action: Callable[[T], Optional[str]]):
+        self.post_sink_actions.append(action)
         return self
         
     def run(self) -> Tuple[Optional[T], Optional[str]]:
         if self.data_set is None:
             return None, "Data set is not set"
         
-        if self.data_set is None:
+        if self.data_sink is None:
             return None, "Data sink is not set"
         
         print(f"pipline load data")
@@ -62,11 +66,16 @@ class Pipline(Generic[T]):
             if err is not None:
                 return None, f"{stage} stage failed: {err}"
             
-        if self.data_sink:
-            print(f"pipline save data")
-            err = self.data_sink.save_data(df)
-            
+        print(f"pipline save data")
+        err = self.data_sink.save_data(df)
         if err is not None:
             return df, err
+
+        for action in self.post_sink_actions:
+            action_name = getattr(action, "__name__", action.__class__.__name__)
+            print(f"pipline post sink action: {action_name}")
+            err = action(df)
+            if err is not None:
+                return df, err
 
         return df, None
