@@ -36,6 +36,19 @@ def to_duckdb_uri(config: ObjectStorageConfig, path: str) -> str:
     return f"{config.effective_uri_scheme}://{normalized}"
 
 
+def to_duckdb_httpfs_uri(config: ObjectStorageConfig, bucket: str, key: str = "") -> str:
+    """DuckDB httpfs COPY/READ 用的 URI（GCS 使用 gs:// + TYPE gcs secret）。"""
+    if config.backend is StorageBackend.GCS and config.access_key and config.secret_key:
+        from infra.repo.duckdb.gcs_config import GcsDuckDBConfig
+
+        duck_cfg = GcsDuckDBConfig(
+            hmac_access_key=config.access_key,
+            hmac_secret_key=config.secret_key,
+        )
+        return duck_cfg.object_uri(bucket, key)
+    return object_uri(config, bucket, key)
+
+
 to_fs_uri = to_duckdb_uri
 
 

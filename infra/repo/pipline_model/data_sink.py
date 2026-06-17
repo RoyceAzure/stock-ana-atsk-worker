@@ -3,7 +3,7 @@ from typing import Tuple, Optional, TypeVar, Generic
 import pandas as pd
 from models.pipline_model.pipline_params import SinkLocationType, SinkParams
 
-T = TypeVar("T", pd.DataFrame)
+T = TypeVar("T", bound=pd.DataFrame)
 
 class IDataSink(ABC, Generic[T]):
     """

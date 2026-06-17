@@ -5,7 +5,12 @@ import duckdb
 import pandas as pd
 
 from core.file_lock.file_lock_manager import FileLocker
-from infra.repo.object_storage import create_filesystem, to_duckdb_uri
+from infra.repo.object_storage import (
+    StorageBackend,
+    create_filesystem,
+    to_duckdb_httpfs_uri,
+    to_duckdb_uri,
+)
 from models.pipline_model.pandas_trade_price_schema import validate_pandas_trade_price_output
 from models.pipline_model.pipline_params import SinkParams
 from infra.repo.pipline_model.data_sink import IDataSink
@@ -31,7 +36,8 @@ class PandasTradePriceObjectStorageParquetSink(IDataSink[pd.DataFrame]):
         expected_schema=None,
         duckdb_conn: duckdb.DuckDBPyConnection = None,
     ):
-        super().__init__(args=args, expected_schema=expected_schema)
+        super().__init__(args=args)
+        self.expected_schema = expected_schema
         self.duckdb_conn = duckdb_conn
 
     def _save(self) -> Optional[str]:
@@ -60,14 +66,12 @@ class PandasTradePriceObjectStorageParquetSink(IDataSink[pd.DataFrame]):
                     start_str = _format_date(start_date)
                     end_str = _format_date(end_date)
                     folder_name = f"{code}_{candle}_{start_str}_{end_str}.parquet"
-                    parquet_path = storage_config.object_uri(
-                        bucket, f"{folder_name}/part-00000.snappy.parquet"
+                    parquet_key = f"{folder_name}/part-00000.snappy.parquet"
+                    duckdb_parquet_path = to_duckdb_httpfs_uri(
+                        storage_config, bucket, parquet_key
                     )
-                    duckdb_parquet_path = to_duckdb_uri(storage_config, parquet_path)
-                    success_path = to_duckdb_uri(
-                        storage_config, f"{bucket}/{folder_name}/_SUCCESS"
-                    )
-                    lock_key = to_duckdb_uri(storage_config, f"{bucket}/{folder_name}")
+                    success_key = f"{folder_name}/_SUCCESS"
+                    lock_key = to_duckdb_httpfs_uri(storage_config, bucket, folder_name)
 
                     df_filtered = df[(df["code"] == code) & (df["candle"] == candle)]
                     logger.info(
@@ -81,8 +85,20 @@ class PandasTradePriceObjectStorageParquetSink(IDataSink[pd.DataFrame]):
                             f"(FORMAT PARQUET, CODEC 'SNAPPY')"
                         )
                         con.unregister("_sink_df")
-                        with fs.open(success_path, "wb") as _:
-                            pass
+                        if storage_config.backend is StorageBackend.GCS:
+                            success_path = to_duckdb_httpfs_uri(
+                                storage_config, bucket, success_key
+                            )
+                            con.execute(
+                                f"COPY (SELECT 1) TO '{success_path}' "
+                                f"(FORMAT CSV, HEADER false)"
+                            )
+                        else:
+                            success_path = to_duckdb_uri(
+                                storage_config, f"{bucket}/{success_key}"
+                            )
+                            with fs.open(success_path, "wb"):
+                                pass
                     logger.info(
                         f"save data to {storage_config.backend.value} success: "
                         f"{code}, {candle}, {start_date}, {end_date}"

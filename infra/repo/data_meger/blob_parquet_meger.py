@@ -5,6 +5,7 @@ from typing import Any, List, Tuple
 import duckdb
 
 from infra.repo.duckdb.config import DuckDBStorageConfig, strip_uri_scheme
+from infra.repo.duckdb.gcs_config import GcsDuckDBConfig
 from infra.repo.duckdb_manager import DuckDBManager
 
 logger = logging.getLogger(__name__)
@@ -60,8 +61,39 @@ class BlobParquetMerger:
     def _fs_uri(self, path: str) -> str:
         return self._duck_uri(path)
 
+    def _normalize_dataset_folder(self, path: str) -> str:
+        """將 part 檔或 URI 正規化為 dataset 資料夾路徑（bucket/xxx.parquet）。"""
+        folder = strip_uri_scheme(path).rstrip("/")
+        if "/part-" in folder:
+            folder = folder.split("/part-")[0]
+        return folder
+
+    def _dataset_glob_prefix(self, code: str, candle: str) -> str:
+        return f"{self.base_path}/{code}_{candle}_*"
+
     def _list_merge_sources(self, code: str, candle: str) -> List[str]:
-        return self.fs.glob(f"{self.base_path}/{code}_{candle}_*/*.parquet")
+        return self.fs.glob(f"{self._dataset_glob_prefix(code, candle)}/part-*.parquet")
+
+    def _list_dataset_folders(self, code: str, candle: str) -> List[str]:
+        folders = {
+            self._normalize_dataset_folder(path)
+            for path in self._list_merge_sources(code, candle)
+        }
+        return sorted(folders)
+
+    def _remove_dataset_folder(self, folder_path: str) -> None:
+        folder = self._normalize_dataset_folder(folder_path)
+        if self.fs.exists(folder):
+            self.fs.rm(folder, recursive=True)
+
+    def _cleanup_old_datasets(
+        self, code: str, candle: str, keep_folder: str
+    ) -> None:
+        keep = self._normalize_dataset_folder(keep_folder)
+        for folder in self._list_dataset_folders(code, candle):
+            if folder != keep:
+                logger.info("Removing old dataset folder: %s", folder)
+                self._remove_dataset_folder(folder)
 
     def merge_single(self, code: str, candle: str) -> None:
         sources = self._list_merge_sources(code, candle)
@@ -73,10 +105,13 @@ class BlobParquetMerger:
             )
             return
 
-        source_query = self._duck_uri(f"{self.base_path}/{code}_{candle}_*/*.parquet")
+        source_query = self._duck_uri(
+            f"{self.base_path}/{code}_{candle}_*/part-*.parquet"
+        )
 
         for attempt in range(_MAX_MERGE_RETRIES + 1):
             temp_path = ""
+            moved = False
             logger.info(
                 "Merging code=%s candle=%s attempt=%s source_count=%s",
                 code,
@@ -114,16 +149,20 @@ class BlobParquetMerger:
                         (FORMAT PARQUET, CODEC 'SNAPPY')
                     """
                     con.execute(dedup_and_sorted_copy_sql)
-                    with self.fs.open(self._fs_uri(f"{temp_path}/_SUCCESS"), "wb") as _:
-                        pass
+                    success_uri = self._duck_uri(f"{temp_path}/_SUCCESS")
+                    if isinstance(self.duckdb_config, GcsDuckDBConfig):
+                        con.execute(
+                            f"COPY (SELECT 1) TO '{success_uri}' "
+                            f"(FORMAT CSV, HEADER false)"
+                        )
+                    else:
+                        with self.fs.open(success_uri, "wb"):
+                            pass
 
-                    if self.fs.exists(final_path):
-                        self.fs.rm(final_path, recursive=True)
+                    self._remove_dataset_folder(final_path)
                     self.fs.move(temp_path, final_path, recursive=True)
-
-                    for old in self.fs.glob(f"{self.base_path}/{code}_{candle}_*.parquet"):
-                        if old.rstrip("/") != final_path.rstrip("/"):
-                            self.fs.rm(old, recursive=True)
+                    moved = True
+                    self._cleanup_old_datasets(code, candle, final_path)
                     logger.info(
                         "Merged code=%s candle=%s to %s",
                         code,
@@ -153,7 +192,7 @@ class BlobParquetMerger:
                     )
                     return
                 finally:
-                    if temp_path and self.fs.exists(temp_path):
+                    if temp_path and not moved and self.fs.exists(temp_path):
                         self.fs.rm(temp_path, recursive=True)
                     try:
                         con.execute("PRAGMA shrink_memory();")
