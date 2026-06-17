@@ -1,11 +1,11 @@
 from ast import List
-from models.pipline_model.data_sink import IDataSink
+from infra.repo.pipline_model.data_sink import IDataSink
 from typing import Callable, Tuple, Optional, TypeVar, Generic
 import pandas as pd
-from models.pipline_model.data_set import IDataSet
+from service.pipline.data_set import IDataSet
 
 
-T = TypeVar("T", pd.DataFrame)
+T = TypeVar("T", bound=pd.DataFrame)
 
 class PipelineStage(Generic[T]):
     def __init__(self, process_func: Callable[[T], T], name: str = None):

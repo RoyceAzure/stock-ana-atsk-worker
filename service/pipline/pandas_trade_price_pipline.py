@@ -6,8 +6,8 @@ from infra.repo.data_loaders.sql_loader import SQLLoader
 from infra.repo.pipline_model.pandas_trade_price_datasink import (
     PandasTradePriceObjectStorageParquetSink,
 )
-from models.pipline_model.data_sink import SinkLocationType, SinkParams
-from models.pipline_model.pandas_trade_price_dataset import PandasTradePriceDataSet
+from models.pipline_model.pipline_params import SinkLocationType, SinkParams
+from service.pipline.pandas_trade_price_dataset import PandasTradePriceDataSet
 from service.pipline.pipline_service import PipelineStage, Pipline
 from technicals import pattern
 
@@ -33,7 +33,7 @@ def get_pandas_pre_process_pipline(
     """
     dataLoader = SQLLoader(pg_conn)
 
-    source_data_set = PandasTradePriceDataSet(dataLoader, None, **query_params)
+    source_data_set = PandasTradePriceDataSet(dataLoader, **query_params)
 
     trade_price_pipline = Pipline[pd.DataFrame]()
     remove_columns_stage = PipelineStage[pd.DataFrame](pattern.remove_columns)
