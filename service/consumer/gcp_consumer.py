@@ -44,15 +44,28 @@ class IMessageConsumer(Protocol):
     def start(self) -> None:
         ...
 
+
+class ITaskClaimDao(Protocol):
+    def db_claim_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        ...
+
+
 class GCPMessageConsumer(IMessageConsumer):
     """GCP 消息消費者
     
     負責監聽 GCP 消息對列，並執行任務
     """
-    def __init__(self, config: PubSubConsumerConfig, task_cooridinaor: TaskCoordinator ,task_event_helper: TaskEventHelper):
+    def __init__(
+        self,
+        config: PubSubConsumerConfig,
+        task_cooridinaor: TaskCoordinator,
+        task_event_helper: TaskEventHelper,
+        db_dao: ITaskClaimDao,
+    ):
         self.config = config
         self.task_cooridinaor = task_cooridinaor
         self.task_event_helper = task_event_helper
+        self.db_dao = db_dao
         self._init_consumer()
 
     def _init_consumer(self) -> None:

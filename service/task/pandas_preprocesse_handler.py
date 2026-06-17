@@ -20,7 +20,7 @@ class PreProcessPandasTaskProcessor(TaskHandler):
     
     """
     def __init__(self, pg_conn: psycopg2.extensions.connection, duckdb_conn: duckdb.DuckDBPyConnection, parquet_meger: BlobParquetMerger):
-        self.super.__init__(EventStage.PRE_STAGE)
+        super().__init__(EventStage.PRE_STAGE)
         self.pg_conn = pg_conn
         self.duckdb_conn = duckdb_conn
         self.parquet_meger = parquet_meger

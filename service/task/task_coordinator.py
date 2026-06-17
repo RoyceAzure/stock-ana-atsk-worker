@@ -43,7 +43,7 @@ class TaskCoordinator(ITaskCoordinator):
         event_stage = self.task_handler.get_stage
         err_msg = ""
         try:
-            self.excute_with_retry(task_event)
+            self._excute_with_retry(task_event)
         except Exception as e:
             err_msg = f"發生錯誤 [{type(e).__name__}]: {str(e)}"
             final_stage = TaskEventStatus.TaskStatusFailed
@@ -60,6 +60,7 @@ class TaskCoordinator(ITaskCoordinator):
             try:
                 # 呼叫純商業邏輯的 Processor
                 self.task_handler.process(task_event)
+                return
 
             except TransientError as e:
                 # 發生可重試的錯誤
