@@ -10,6 +10,8 @@ from models.pipline_model.pandas_trade_price_schema import validate_pandas_trade
 from models.pipline_model.pipline_params import SinkParams
 from infra.repo.pipline_model.data_sink import IDataSink
 
+logger = logging.getLogger(__name__)
+
 
 def _format_date(val) -> str:
     """將 date/datetime 轉為 YYYY-MM-DD 字串"""
@@ -31,7 +33,6 @@ class PandasTradePriceObjectStorageParquetSink(IDataSink[pd.DataFrame]):
     ):
         super().__init__(args=args, expected_schema=expected_schema)
         self.duckdb_conn = duckdb_conn
-        self.logger = logging.getLogger(__name__)
 
     def _save(self) -> Optional[str]:
         if self.parms is None or self.parms.path is None:
@@ -69,7 +70,7 @@ class PandasTradePriceObjectStorageParquetSink(IDataSink[pd.DataFrame]):
                     lock_key = to_duckdb_uri(storage_config, f"{bucket}/{folder_name}")
 
                     df_filtered = df[(df["code"] == code) & (df["candle"] == candle)]
-                    self.logger.info(
+                    logger.info(
                         f"save data to {storage_config.backend.value}: "
                         f"{code}, {candle}, {start_date}, {end_date}"
                     )
@@ -82,24 +83,24 @@ class PandasTradePriceObjectStorageParquetSink(IDataSink[pd.DataFrame]):
                         con.unregister("_sink_df")
                         with fs.open(success_path, "wb") as _:
                             pass
-                    self.logger.info(
+                    logger.info(
                         f"save data to {storage_config.backend.value} success: "
                         f"{code}, {candle}, {start_date}, {end_date}"
                     )
             except Exception as e:
                 error_type = type(e).__name__
                 error_msg = f"儲存 parquet 失敗: [{error_type}] {str(e)}"
-                self.logger.error(
+                logger.error(
                     f"save data failed: {code}, {candle}, {start_date}, {end_date}, {error_msg}"
                 )
                 return error_msg
             finally:
-                self.logger.info("duck db shrink memory start")
+                logger.info("duck db shrink memory start")
                 try:
                     con.execute("PRAGMA shrink_memory();")
                 except Exception:
                     pass
-                self.logger.info("duck db shrink memory end")
+                logger.info("duck db shrink memory end")
         return None
 
     def _validate(self, df: pd.DataFrame) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
