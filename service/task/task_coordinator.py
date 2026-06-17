@@ -31,7 +31,7 @@ class TaskCoordinator(ITaskCoordinator):
     """
     def __init__(self, task_event_helper: TaskEventHelper, task_handler: TaskHandler):
         self.task_event_helper = task_event_helper
-        self.task_processer = task_handler
+        self.task_handler = task_handler
 
     def execute(self, task_event: TaskEvent) -> None:
         """執行任務
@@ -59,7 +59,7 @@ class TaskCoordinator(ITaskCoordinator):
         for attempt in range(max_retries):
             try:
                 # 呼叫純商業邏輯的 Processor
-                self.task_processer.process(task_event)
+                self.task_handler.process(task_event)
 
             except TransientError as e:
                 # 發生可重試的錯誤
