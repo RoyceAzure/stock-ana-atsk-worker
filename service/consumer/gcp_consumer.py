@@ -6,7 +6,7 @@ from google.cloud import pubsub_v1
 from google.api_core import retry
 from google.api_core.exceptions import DeadlineExceeded
 from models.task_event import TaskEvent
-from service.task.task_coordinator import TaskCoordinator
+from service.task.task_coordinator import ITaskCoordinator
 from service.taskevent.helper import TaskEventHelper
 from pydantic import BaseModel, Field
 
@@ -58,7 +58,7 @@ class GCPMessageConsumer(IMessageConsumer):
     def __init__(
         self,
         config: PubSubConsumerConfig,
-        task_cooridinaor: TaskCoordinator,
+        task_cooridinaor: ITaskCoordinator,
         task_event_helper: TaskEventHelper,
         db_dao: ITaskClaimDao,
     ):
@@ -154,6 +154,18 @@ class GCPMessageConsumer(IMessageConsumer):
                 )
 
         logging.info("[Shutdown] Worker 優雅退出 (Exit 0)")
+
+    def close(self) -> None:
+        subscriber = getattr(self, "subscriber", None)
+        if subscriber is None:
+            return
+        try:
+            subscriber.close()
+            logging.info("[Worker] Pub/Sub Subscriber 客戶端已關閉")
+        except Exception as exc:
+            logging.warning("[Worker] 關閉 Pub/Sub Subscriber 失敗: %s", exc)
+        finally:
+            self.subscriber = None
 
     def db_claim_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         return self.db_dao.db_claim_task(task_id)
