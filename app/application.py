@@ -7,17 +7,14 @@ from psycopg2 import OperationalError
 
 from app.cloud.assembly import build_cloud_worker_assembly
 from app.config import WorkerConfig
-from app.dispatch import TaskCoordinatorDispatch
+from app.task.assembly import build_task_worker_assembly
 from core.life_cycle.lifecycle import register_graceful_shutdown, shutdown_event
 from core.logger.logger import setup_logging
 from infra.repo.duckdb_manager import DuckDBManager
 from infra.repo.object_storage import create_parquet_merger
 from infra.repo.pg_dao import DBPoolConfig, DatabasePool, DatabaseRepository
 from service.consumer.gcp_consumer import GCPMessageConsumer, IMessageConsumer
-from service.task.task_factory import (
-    TaskCoordinatorFactory,
-    build_default_task_handler_registry,
-)
+from service.task.task_factory import TaskHandlerDeps
 from service.taskevent.helper import TaskEventHelper
 
 logger = logging.getLogger(__name__)
@@ -77,23 +74,29 @@ class Application:
             cloud_assembly.storage_config,
         )
 
-        registry = build_default_task_handler_registry(
-            self._pg_pool,
-            DuckDBManager.get_conn(),
-            parquet_merger,
+        assert self.config.task is not None
+        task_assembly = build_task_worker_assembly(
+            self.config.task,
+            task_event_helper,
+            TaskHandlerDeps(
+                pg_pool=self._pg_pool,
+                duckdb_conn=DuckDBManager.get_conn(),
+                parquet_merger=parquet_merger,
+            ),
         )
-        coordinator_factory = TaskCoordinatorFactory(task_event_helper, registry)
-        task_coordinator = TaskCoordinatorDispatch(coordinator_factory)
 
         self._consumer = GCPMessageConsumer(
             config=cloud_assembly.pubsub_config,
-            task_cooridinaor=task_coordinator,
+            task_cooridinaor=task_assembly.dispatch,
             task_event_helper=task_event_helper,
             db_dao=db_repo,
         )
 
         self._bootstrapped = True
-        logger.info("[Application] 組裝完成，準備啟動 consumer")
+        logger.info(
+            "[Application] 組裝完成，任務類型: %s",
+            ", ".join(self.config.task.enabled_values),
+        )
 
     def _teardown(self) -> None:
         logger.info("[Application] 開始釋放資源")

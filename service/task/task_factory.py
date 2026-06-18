@@ -1,4 +1,7 @@
-from typing import Dict, Optional, Protocol
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Callable, Dict, Iterable, Optional, Protocol
 
 import duckdb
 
@@ -14,6 +17,13 @@ from service.taskevent.helper import TaskEventHelper
 class TaskHandlerFactory(Protocol):
     def __call__(self) -> TaskHandler:
         ...
+
+
+@dataclass(frozen=True)
+class TaskHandlerDeps:
+    pg_pool: DatabasePool
+    duckdb_conn: duckdb.DuckDBPyConnection
+    parquet_merger: BlobParquetMerger
 
 
 def _event_name_key(event_name: EventName | str) -> str:
@@ -37,6 +47,63 @@ class TaskHandlerRegistry:
             raise ValueError(f"No task handler registered for event_name={key}")
         return self._factories[key]()
 
+    def supports(self, event_name: EventName | str) -> bool:
+        return _event_name_key(event_name) in self._factories
+
+
+HandlerRegistrar = Callable[[TaskHandlerRegistry, TaskHandlerDeps], None]
+
+
+def _register_preprocess(registry: TaskHandlerRegistry, deps: TaskHandlerDeps) -> None:
+    registry.register(
+        EventName.PREPROCESS,
+        lambda: PreProcessPandasTaskProcessor(
+            deps.pg_pool.get_connection(),
+            deps.duckdb_conn,
+            deps.parquet_merger,
+        ),
+    )
+
+
+_HANDLER_REGISTRARS: Dict[EventName, HandlerRegistrar] = {
+    EventName.PREPROCESS: _register_preprocess,
+}
+
+
+def build_task_handler_registry(
+    enabled_event_names: Iterable[EventName],
+    deps: TaskHandlerDeps,
+) -> TaskHandlerRegistry:
+    """依啟用的 event_name 建立 handler registry。"""
+
+    enabled = frozenset(enabled_event_names)
+    if not enabled:
+        raise ValueError("至少需要啟用一種 WORKER_TASK_TYPES")
+
+    registry = TaskHandlerRegistry()
+    for event_name in sorted(enabled, key=lambda item: item.value):
+        registrar = _HANDLER_REGISTRARS.get(event_name)
+        if registrar is None:
+            raise ValueError(f"event_name={event_name.value} 尚未實作 handler")
+        registrar(registry, deps)
+
+    return registry
+
+
+def build_default_task_handler_registry(
+    pg_pool: DatabasePool,
+    duckdb_conn: duckdb.DuckDBPyConnection,
+    parquet_meger: BlobParquetMerger,
+) -> TaskHandlerRegistry:
+    """建立預設 registry（僅 preprocessing，供測試與向後相容）。"""
+
+    deps = TaskHandlerDeps(
+        pg_pool=pg_pool,
+        duckdb_conn=duckdb_conn,
+        parquet_merger=parquet_meger,
+    )
+    return build_task_handler_registry([EventName.PREPROCESS], deps)
+
 
 class TaskCoordinatorFactory:
     """依 TaskEvent.event_name 動態建立對應 handler 的 TaskCoordinator。"""
@@ -48,25 +115,6 @@ class TaskCoordinatorFactory:
     def create(self, task_event: TaskEvent) -> TaskCoordinator:
         handler = self.registry.create(task_event.event_name)
         return TaskCoordinator(self.task_event_helper, handler)
-
-
-def build_default_task_handler_registry(
-    pg_pool: DatabasePool,
-    duckdb_conn: duckdb.DuckDBPyConnection,
-    parquet_meger: BlobParquetMerger,
-) -> TaskHandlerRegistry:
-    """建立預設 registry（目前只註冊 preprocessing）。"""
-
-    registry = TaskHandlerRegistry()
-    registry.register(
-        EventName.PREPROCESS,
-        lambda: PreProcessPandasTaskProcessor(
-            pg_pool.get_connection(),
-            duckdb_conn,
-            parquet_meger,
-        ),
-    )
-    return registry
 
 
 def create_coordinator_for_task(

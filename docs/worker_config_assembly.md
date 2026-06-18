@@ -23,7 +23,9 @@ graph TB
         PSC[PubSubConsumerConfig]
     end
 
-    subgraph L2["第二層：任務 type 組裝（現況）"]
+    subgraph L2["第二層：任務 type 組裝"]
+        TWP[TaskWorkerProfile]
+        TWA[TaskWorkerAssembly]
         REG[TaskHandlerRegistry]
         TCF[TaskCoordinatorFactory]
         TCD[TaskCoordinatorDispatch]
@@ -39,6 +41,7 @@ graph TB
 
     ENV --> WC
     WC -->|contains| GWP
+    WC -->|contains| TWP
     WC --> CWA
     GWP --> CWA
     CWA -->|contains| OSC
@@ -52,10 +55,15 @@ graph TB
     CWA --> BPM
     CWA --> GMC
 
-    DPOOL --> REG
-    DDM --> REG
-    BPM --> REG
-    REG --> TCF --> TCD --> GMC
+    DPOOL --> TWA
+    DDM --> TWA
+    BPM --> TWA
+    TWP --> TWA
+    TWA -->|contains| REG
+    TWA -->|contains| TCF
+    TWA -->|contains| TCD
+    CWA --> GMC
+    TCD --> GMC
 ```
 
 ---
@@ -84,7 +92,25 @@ classDiagram
         +int pg_pool_max_conn
         +float shutdown_drain_timeout
         +GcpWorkerProfile gcp
+        +TaskWorkerProfile task
         +db_config() DBConfig
+    }
+
+    class TaskWorkerProfile {
+        +frozenset enabled_event_names
+        +enabled_values() tuple
+    }
+
+    class TaskWorkerAssembly {
+        +TaskHandlerRegistry registry
+        +TaskCoordinatorFactory coordinator_factory
+        +TaskCoordinatorDispatch dispatch
+    }
+
+    class TaskHandlerDeps {
+        +DatabasePool pg_pool
+        +DuckDBPyConnection duckdb_conn
+        +BlobParquetMerger parquet_merger
     }
 
     class GcpWorkerProfile {
@@ -146,7 +172,14 @@ classDiagram
 
     WorkerConfig *-- CloudProvider : cloud_provider
     WorkerConfig *-- GcpWorkerProfile : gcp (GCP 時)
+    WorkerConfig *-- TaskWorkerProfile : task
     WorkerConfig ..> DBConfig : property 衍生
+
+    TaskWorkerAssembly *-- TaskHandlerRegistry
+    TaskWorkerAssembly *-- TaskCoordinatorFactory
+    TaskWorkerAssembly *-- TaskCoordinatorDispatch
+    TaskWorkerProfile ..> TaskWorkerAssembly : build_task_worker_assembly()
+    TaskHandlerDeps ..> TaskWorkerAssembly : 注入 handler 依賴
 
     CloudWorkerAssembly *-- ObjectStorageConfig
     CloudWorkerAssembly *-- DuckDBStorageConfig
@@ -167,14 +200,15 @@ sequenceDiagram
     participant Main as main.py
     participant App as Application
     participant WC as WorkerConfig
-    participant GWP as GcpWorkerProfile
-    participant Asm as build_cloud_worker_assembly
-    participant CWA as CloudWorkerAssembly
+    participant TWP as TaskWorkerProfile
+    participant TAsm as build_task_worker_assembly
+    participant TWA as TaskWorkerAssembly
 
     Main->>App: Application()
     App->>WC: WorkerConfig.from_env()
     WC->>WC: 讀 CLOUD_PROVIDER
     WC->>GWP: GcpWorkerProfile.from_env() (GCP)
+    WC->>TWP: TaskWorkerProfile.from_env()
     GWP->>GWP: 驗證 STORAGE_BACKEND=gcs
 
     App->>Asm: build_cloud_worker_assembly(config)
@@ -185,8 +219,12 @@ sequenceDiagram
     App->>App: DuckDBManager.initialize(duckdb_config, duckdb_pool_size)
     App->>App: DatabasePool(DBPoolConfig, db_config)
     App->>App: create_parquet_merger(bucket_path, storage_config)
-    App->>App: build_default_task_handler_registry(...)
-    App->>App: GCPMessageConsumer(pubsub_config, ...)
+
+    App->>TAsm: build_task_worker_assembly(task_profile, deps)
+    TAsm->>TWA: build_task_handler_registry(enabled_event_names)
+    TAsm->>TWA: TaskCoordinatorFactory + TaskCoordinatorDispatch
+
+    App->>App: GCPMessageConsumer(pubsub_config, dispatch, ...)
 ```
 
 ---
@@ -271,6 +309,40 @@ sequenceDiagram
 
 ---
 
+### 子節點：`TaskWorkerProfile`（由 `WorkerConfig.task` 承載）
+
+| 環境變數 | Config 欄位 | 必填 | 預設值 | 說明 |
+|---|---|:---:|---|---|
+| `WORKER_TASK_TYPES` | `enabled_event_names` | 否 | `preprocessing` | 逗號分隔的 `EventName` value；至少一項 |
+
+合法值對應 `models.task_event.EventName`：
+
+| value | enum |
+|---|---|
+| `preprocessing` | `PREPROCESS` |
+| `backtesting` | `BACKTEST` |
+| `full_backtest` | `FULLBACKTEST` |
+| `buy_sell_mark` | `BUY_SELL_MARK` |
+| `similarity` | `SIMILARITY` |
+
+> 啟動時若某 type 在 `EventName` 中存在但 **handler 尚未實作**，`build_task_handler_registry` 會 fail-fast 拋錯。
+
+---
+
+### 第二層組裝產物：`TaskWorkerAssembly`
+
+由 `build_task_worker_assembly(TaskWorkerProfile, TaskEventHelper, TaskHandlerDeps)` 產生：
+
+| 成員 | 說明 |
+|---|---|
+| `registry` | 依 `enabled_event_names` 過濾後的 `TaskHandlerRegistry` |
+| `coordinator_factory` | `TaskCoordinatorFactory` |
+| `dispatch` | `TaskCoordinatorDispatch`（注入 `GCPMessageConsumer`） |
+
+`TaskHandlerDeps` 由 `Application` 在 infra 初始化後組裝，包含 `pg_pool`、`duckdb_conn`、`parquet_merger`。
+
+---
+
 ### Application 內額外組裝的 Config（不屬於 `CloudWorkerAssembly`）
 
 | Config 類別 | 來源 | 環境變數 |
@@ -288,10 +360,11 @@ sequenceDiagram
 | `DuckDBManager` | `duckdb_config` + `duckdb_pool_size` | `app/application.py` |
 | `DatabasePool` | `DBPoolConfig` + `DBConfig` | `app/application.py` |
 | `BlobParquetMerger` | `object_storage_bucket_base_path` + `storage_config` | `infra/repo/object_storage.py` |
-| `GCPMessageConsumer` | `pubsub_config` | `app/application.py` |
-| `TaskHandlerRegistry` | `pg_pool`, DuckDB conn, `parquet_merger` | `service/task/task_factory.py` |
+| `GCPMessageConsumer` | `pubsub_config` + `dispatch` | `app/application.py` |
+| `TaskHandlerRegistry` | `TaskHandlerDeps` + `WORKER_TASK_TYPES` | `app/task/assembly.py` |
+| `TaskCoordinatorDispatch` | `TaskWorkerAssembly.dispatch` | `app/task/assembly.py` |
 
-第二層任務組裝（依 `event_name` 選 handler）目前**不引入額外 Config 類別**，僅使用第一層已組裝好的依賴。
+第二層透過 `TaskWorkerProfile` 控制 registry 內容；consumer 本身不隨 task type 更換實作類別。
 
 ---
 
@@ -304,6 +377,7 @@ graph LR
     subgraph Direct["直接 os.getenv"]
         WC2[WorkerConfig.from_env]
         GWP2[GcpWorkerProfile.from_env]
+        TWP2[TaskWorkerProfile.from_env]
     end
 
     subgraph Singleton["core.config.Config 單例"]
@@ -316,12 +390,13 @@ graph LR
     OSENV[os.environ] --> CFG
     OSENV --> WC2
     OSENV --> GWP2
+    OSENV --> TWP2
     DOTENV --> OSENV
 ```
 
 | 讀取方式 | 使用處 | 行為 |
 |---|---|---|
-| `os.getenv` | `WorkerConfig`, `GcpWorkerProfile` | 直接讀程序環境變數 |
+| `os.getenv` | `WorkerConfig`, `GcpWorkerProfile`, `TaskWorkerProfile` | 直接讀程序環境變數 |
 | `Config()` 單例 | `ObjectStorageConfig`, `GcsDuckDBConfig` | 合併 `.env` 與 `os.environ`（**環境變數優先**） |
 
 `GcpWorkerProfile.from_env()` 會呼叫 `Config()` 以確保 `.env` 已載入，但 profile 自身欄位仍透過 `os.getenv` 讀取。
@@ -334,30 +409,39 @@ graph LR
 WorkerConfig                          ← WorkerConfig.from_env()
 ├── cloud_provider: gcp
 ├── pg_* / duckdb_pool_size / pg_pool_* / shutdown_drain_timeout
-└── gcp: GcpWorkerProfile             ← GcpWorkerProfile.from_env()
-    ├── project_id          ← GCP_PROJECT_ID
-    ├── subscription_id     ← GCP_SUBSCRIPTION_ID
-    ├── object_storage_bucket_base_path ← OBJECT_STORAGE_BUCKET_BASE_PATH
-    └── pubsub_*            ← PUBSUB_*
+├── gcp: GcpWorkerProfile             ← GcpWorkerProfile.from_env()
+│   ├── project_id          ← GCP_PROJECT_ID
+│   ├── subscription_id     ← GCP_SUBSCRIPTION_ID
+│   ├── object_storage_bucket_base_path ← OBJECT_STORAGE_BUCKET_BASE_PATH
+│   └── pubsub_*            ← PUBSUB_*
+└── task: TaskWorkerProfile           ← TaskWorkerProfile.from_env()
+    └── enabled_event_names ← WORKER_TASK_TYPES
 
-        build_cloud_worker_assembly()
-        └── CloudWorkerAssembly
-            ├── storage_config: ObjectStorageConfig
-            │   └── GCS_HMAC_* / GCS_USE_ADC
-            ├── duckdb_config: GcsDuckDBConfig
-            │   └── GCS_HMAC_ACCESS_KEY / GCS_HMAC_SECRET_KEY
-            ├── object_storage_bucket_base_path  (來自 GcpWorkerProfile)
-            └── pubsub_config: PubSubConsumerConfig
-                ├── 來自 GcpWorkerProfile 的 pub/sub 欄位
-                └── shutdown_drain_timeout  (來自 WorkerConfig)
+    build_cloud_worker_assembly()
+    └── CloudWorkerAssembly
+        ├── storage_config: ObjectStorageConfig
+        │   └── GCS_HMAC_* / GCS_USE_ADC
+        ├── duckdb_config: GcsDuckDBConfig
+        │   └── GCS_HMAC_ACCESS_KEY / GCS_HMAC_SECRET_KEY
+        ├── object_storage_bucket_base_path  (來自 GcpWorkerProfile)
+        └── pubsub_config: PubSubConsumerConfig
+            ├── 來自 GcpWorkerProfile 的 pub/sub 欄位
+            └── shutdown_drain_timeout  (來自 WorkerConfig)
+
+    build_task_worker_assembly()
+    └── TaskWorkerAssembly
+        ├── registry: TaskHandlerRegistry
+        │   └── 依 enabled_event_names 從 _HANDLER_REGISTRARS 註冊
+        ├── coordinator_factory: TaskCoordinatorFactory
+        └── dispatch: TaskCoordinatorDispatch
 
 Application._bootstrap() 額外組裝
 ├── DBPoolConfig(min_conn, max_conn)     ← WorkerConfig
 ├── DBConfig                             ← WorkerConfig.db_config
 ├── DuckDBManager(duckdb_config, pool_size)
 ├── BlobParquetMerger(path, storage_config)
-├── TaskHandlerRegistry → TaskCoordinatorDispatch
-└── GCPMessageConsumer(pubsub_config, coordinator, ...)
+├── TaskHandlerDeps(pg_pool, duckdb_conn, parquet_merger)
+└── GCPMessageConsumer(pubsub_config, dispatch, ...)
 ```
 
 ---
@@ -389,10 +473,14 @@ CloudWorkerAssembly (AWS 版)
 | 檔案 | 職責 |
 |---|---|
 | `app/config.py` | `WorkerConfig` 根設定 |
+| `app/cloud/provider.py` | `CloudProvider` enum |
 | `app/cloud/gcp_profile.py` | GCP 專用 profile |
 | `app/cloud/assembly.py` | 第一層 `CloudWorkerAssembly` 組裝 |
-| `app/cloud/provider.py` | `CloudProvider` enum |
 | `app/application.py` | 完整 bootstrap / teardown |
+| `app/task/profile.py` | `TaskWorkerProfile`（`WORKER_TASK_TYPES`） |
+| `app/task/assembly.py` | 第二層 `TaskWorkerAssembly` 組裝 |
+| `app/dispatch.py` | `TaskCoordinatorDispatch` |
+| `service/task/task_factory.py` | handler catalog 與 `TaskHandlerRegistry` |
 | `infra/repo/object_storage.py` | `ObjectStorageConfig` |
 | `infra/repo/duckdb/gcs_config.py` | `GcsDuckDBConfig` |
 | `infra/repo/pg_dao.py` | `DBConfig`, `DBPoolConfig` |
