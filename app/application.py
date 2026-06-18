@@ -5,19 +5,15 @@ from typing import Optional
 
 from psycopg2 import OperationalError
 
+from app.cloud.assembly import build_cloud_worker_assembly
 from app.config import WorkerConfig
 from app.dispatch import TaskCoordinatorDispatch
 from core.life_cycle.lifecycle import register_graceful_shutdown, shutdown_event
 from core.logger.logger import setup_logging
-from infra.repo.duckdb.factory import from_env as duckdb_config_from_env
 from infra.repo.duckdb_manager import DuckDBManager
-from infra.repo.object_storage import ObjectStorageConfig, create_parquet_merger
+from infra.repo.object_storage import create_parquet_merger
 from infra.repo.pg_dao import DBPoolConfig, DatabasePool, DatabaseRepository
-from service.consumer.gcp_consumer import (
-    GCPMessageConsumer,
-    IMessageConsumer,
-    PubSubConsumerConfig,
-)
+from service.consumer.gcp_consumer import GCPMessageConsumer, IMessageConsumer
 from service.task.task_factory import (
     TaskCoordinatorFactory,
     build_default_task_handler_registry,
@@ -58,9 +54,11 @@ class Application:
         setup_logging()
         register_graceful_shutdown()
 
-        storage_config = ObjectStorageConfig.from_env(self.config.storage_backend)
-        duckdb_config = duckdb_config_from_env(self.config.storage_backend)
-        DuckDBManager.initialize(duckdb_config, pool_size=self.config.duckdb_pool_size)
+        cloud_assembly = build_cloud_worker_assembly(self.config)
+        DuckDBManager.initialize(
+            cloud_assembly.duckdb_config,
+            pool_size=self.config.duckdb_pool_size,
+        )
 
         pool_config = DBPoolConfig(
             min_conn=self.config.pg_pool_min_conn,
@@ -75,8 +73,8 @@ class Application:
         db_repo = DatabaseRepository(pg_conn)
         task_event_helper = TaskEventHelper(db_repo)
         parquet_merger = create_parquet_merger(
-            self.config.object_storage_bucket_base_path,
-            storage_config,
+            cloud_assembly.object_storage_bucket_base_path,
+            cloud_assembly.storage_config,
         )
 
         registry = build_default_task_handler_registry(
@@ -87,16 +85,8 @@ class Application:
         coordinator_factory = TaskCoordinatorFactory(task_event_helper, registry)
         task_coordinator = TaskCoordinatorDispatch(coordinator_factory)
 
-        pubsub_config = PubSubConsumerConfig(
-            project_id=self.config.gcp_project_id,
-            subscription_id=self.config.gcp_subscription_id,
-            batch_size=self.config.pubsub_batch_size,
-            visibility_timeout=self.config.pubsub_visibility_timeout,
-            pull_timeout=self.config.pubsub_pull_timeout,
-            shutdown_drain_timeout=self.config.shutdown_drain_timeout,
-        )
         self._consumer = GCPMessageConsumer(
-            config=pubsub_config,
+            config=cloud_assembly.pubsub_config,
             task_cooridinaor=task_coordinator,
             task_event_helper=task_event_helper,
             db_dao=db_repo,
