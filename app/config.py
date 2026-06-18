@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from core.config.config import Config
 from infra.repo.object_storage import StorageBackend
+from infra.repo.pg_dao import DBConfig
 
 
 def _env_str(key: str, default: str | None = None) -> str:
@@ -35,9 +36,12 @@ class WorkerConfig:
     gcp_project_id: str
     gcp_subscription_id: str
     duckdb_pool_size: int = 10
+    pg_pool_min_conn: int = 1
+    pg_pool_max_conn: int = 10
     pubsub_batch_size: int = 10
     pubsub_visibility_timeout: int = 30
     pubsub_pull_timeout: float = 5.0
+    shutdown_drain_timeout: float = 30.0
 
     @classmethod
     def from_env(cls) -> WorkerConfig:
@@ -59,17 +63,26 @@ class WorkerConfig:
             gcp_project_id=_env_str("GCP_PROJECT_ID"),
             gcp_subscription_id=_env_str("GCP_SUBSCRIPTION_ID"),
             duckdb_pool_size=_env_int("DUCKDB_POOL_SIZE", 10),
+            pg_pool_min_conn=_env_int("PG_POOL_MIN_CONN", 1),
+            pg_pool_max_conn=_env_int("PG_POOL_MAX_CONN", 10),
             pubsub_batch_size=_env_int("PUBSUB_BATCH_SIZE", 10),
             pubsub_visibility_timeout=_env_int("PUBSUB_VISIBILITY_TIMEOUT", 30),
             pubsub_pull_timeout=float(_env_str("PUBSUB_PULL_TIMEOUT", "5.0")),
+            shutdown_drain_timeout=float(
+                _env_str("SHUTDOWN_DRAIN_TIMEOUT", "30.0")
+            ),
+        )
+
+    @property
+    def db_config(self) -> DBConfig:
+        return DBConfig(
+            host=self.pg_host,
+            database=self.pg_database,
+            user=self.pg_user,
+            password=self.pg_password,
+            port=self.pg_port,
         )
 
     @property
     def db_config_dict(self) -> dict:
-        return {
-            "host": self.pg_host,
-            "database": self.pg_database,
-            "user": self.pg_user,
-            "password": self.pg_password,
-            "port": self.pg_port,
-        }
+        return self.db_config.as_dict()

@@ -1,9 +1,9 @@
 from typing import Dict, Optional, Protocol
 
 import duckdb
-import psycopg2
 
 from infra.repo.data_meger.blob_parquet_meger import BlobParquetMerger
+from infra.repo.pg_dao import DatabasePool
 from models.task_event import EventName, TaskEvent
 from service.task.handler import TaskHandler
 from service.task.pandas_preprocesse_handler import PreProcessPandasTaskProcessor
@@ -51,7 +51,7 @@ class TaskCoordinatorFactory:
 
 
 def build_default_task_handler_registry(
-    pg_conn: psycopg2.extensions.connection,
+    pg_pool: DatabasePool,
     duckdb_conn: duckdb.DuckDBPyConnection,
     parquet_meger: BlobParquetMerger,
 ) -> TaskHandlerRegistry:
@@ -60,7 +60,11 @@ def build_default_task_handler_registry(
     registry = TaskHandlerRegistry()
     registry.register(
         EventName.PREPROCESS,
-        lambda: PreProcessPandasTaskProcessor(pg_conn, duckdb_conn, parquet_meger),
+        lambda: PreProcessPandasTaskProcessor(
+            pg_pool.get_connection(),
+            duckdb_conn,
+            parquet_meger,
+        ),
     )
     return registry
 
@@ -68,7 +72,7 @@ def build_default_task_handler_registry(
 def create_coordinator_for_task(
     task_event: TaskEvent,
     task_event_helper: TaskEventHelper,
-    pg_conn: psycopg2.extensions.connection,
+    pg_pool: DatabasePool,
     duckdb_conn: duckdb.DuckDBPyConnection,
     parquet_meger: BlobParquetMerger,
     registry: Optional[TaskHandlerRegistry] = None,
@@ -79,7 +83,7 @@ def create_coordinator_for_task(
     """
 
     resolved_registry = registry or build_default_task_handler_registry(
-        pg_conn, duckdb_conn, parquet_meger
+        pg_pool, duckdb_conn, parquet_meger
     )
     factory = TaskCoordinatorFactory(task_event_helper, resolved_registry)
     return factory.create(task_event)

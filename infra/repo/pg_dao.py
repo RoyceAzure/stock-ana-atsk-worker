@@ -103,14 +103,13 @@ class DatabasePool:
 
         
     def get_connection(self):
-        # 為每個執行序獲取專屬連接
-        if not hasattr(self._local, 'pg2_conn'):
+        if not hasattr(self._local, "conn"):
             self._local.conn = self.pool.getconn()
         return self._local.conn
 
-    def return_connection(self, conn):
-        if hasattr(self._local, 'pg2_conn'):
-            self.pool.putconn(conn)
+    def return_connection(self):
+        if hasattr(self._local, "conn"):
+            self.pool.putconn(self._local.conn)
             del self._local.conn
             
     def close(self):

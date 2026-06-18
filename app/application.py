@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-import psycopg2
 from psycopg2 import OperationalError
 
 from app.config import WorkerConfig
@@ -13,8 +12,12 @@ from core.logger.logger import setup_logging
 from infra.repo.duckdb.factory import from_env as duckdb_config_from_env
 from infra.repo.duckdb_manager import DuckDBManager
 from infra.repo.object_storage import ObjectStorageConfig, create_parquet_merger
-from infra.repo.pg_dao import DatabaseRepository
-from service.consumer.gcp_consumer import GCPMessageConsumer, PubSubConsumerConfig
+from infra.repo.pg_dao import DBPoolConfig, DatabasePool, DatabaseRepository
+from service.consumer.gcp_consumer import (
+    GCPMessageConsumer,
+    IMessageConsumer,
+    PubSubConsumerConfig,
+)
 from service.task.task_factory import (
     TaskCoordinatorFactory,
     build_default_task_handler_registry,
@@ -29,8 +32,8 @@ class Application:
 
     def __init__(self, config: Optional[WorkerConfig] = None) -> None:
         self.config = config or WorkerConfig.from_env()
-        self._pg_conn: Optional[psycopg2.extensions.connection] = None
-        self._consumer: Optional[GCPMessageConsumer] = None
+        self._pg_pool: Optional[DatabasePool] = None
+        self._consumer: Optional[IMessageConsumer] = None
         self._bootstrapped = False
 
     def run(self) -> None:
@@ -59,12 +62,17 @@ class Application:
         duckdb_config = duckdb_config_from_env(self.config.storage_backend)
         DuckDBManager.initialize(duckdb_config, pool_size=self.config.duckdb_pool_size)
 
+        pool_config = DBPoolConfig(
+            min_conn=self.config.pg_pool_min_conn,
+            max_conn=self.config.pg_pool_max_conn,
+        )
         try:
-            self._pg_conn = psycopg2.connect(**self.config.db_config_dict)
+            self._pg_pool = DatabasePool(pool_config, self.config.db_config)
         except OperationalError as exc:
-            raise RuntimeError(f"PostgreSQL 連線失敗: {exc}") from exc
+            raise RuntimeError(f"PostgreSQL 連線池建立失敗: {exc}") from exc
 
-        db_repo = DatabaseRepository(self._pg_conn)
+        pg_conn = self._pg_pool.get_connection()
+        db_repo = DatabaseRepository(pg_conn)
         task_event_helper = TaskEventHelper(db_repo)
         parquet_merger = create_parquet_merger(
             self.config.object_storage_bucket_base_path,
@@ -72,7 +80,7 @@ class Application:
         )
 
         registry = build_default_task_handler_registry(
-            self._pg_conn,
+            self._pg_pool,
             DuckDBManager.get_conn(),
             parquet_merger,
         )
@@ -85,6 +93,7 @@ class Application:
             batch_size=self.config.pubsub_batch_size,
             visibility_timeout=self.config.pubsub_visibility_timeout,
             pull_timeout=self.config.pubsub_pull_timeout,
+            shutdown_drain_timeout=self.config.shutdown_drain_timeout,
         )
         self._consumer = GCPMessageConsumer(
             config=pubsub_config,
@@ -100,17 +109,18 @@ class Application:
         logger.info("[Application] 開始釋放資源")
 
         if self._consumer is not None:
-            self._consumer.close()
+            self._consumer.close(timeout=self.config.shutdown_drain_timeout)
             self._consumer = None
 
         DuckDBManager.close_all()
 
-        if self._pg_conn is not None:
+        if self._pg_pool is not None:
             try:
-                self._pg_conn.close()
+                self._pg_pool.return_connection()
+                self._pg_pool.close()
             except Exception as exc:
-                logger.error("[Application] 關閉 PostgreSQL 連線失敗: %s", exc)
-            self._pg_conn = None
+                logger.error("[Application] 關閉 PostgreSQL 連線池失敗: %s", exc)
+            self._pg_pool = None
 
         self._bootstrapped = False
         logger.info("[Application] 資源釋放完成")
