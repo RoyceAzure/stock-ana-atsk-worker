@@ -92,6 +92,94 @@ PG_PORT=5432
 
 ---
 
+## GKE 部署與 GCP 權限
+
+### `gcp_consumer.py` 需要改嗎？
+
+**不需要。** 目前這行：
+
+```python
+self.subscriber = pubsub_v1.SubscriberClient()
+```
+
+會自動走 Google 的 **Application Default Credentials（ADC）** 憑證鏈，這是官方建議寫法。
+
+| 環境 | ADC 來源 | 你要做的事 |
+|---|---|---|
+| 本機開發 | `gcloud auth application-default login` 產生的憑證檔 | 登入一次即可 |
+| GKE | **Workload Identity**（Pod 透過 metadata 取得 GSA 身分） | 綁定 K8s SA ↔ GCP SA，**不要**掛 JSON 金鑰 |
+
+本機與 GKE 都是「ADC」，差別只在憑證**從哪裡來**，程式碼不用分兩套。
+
+> 不建議在 GKE 設定 `GOOGLE_APPLICATION_CREDENTIALS` 掛 service account JSON 檔（金鑰外洩風險、輪替麻煩）。請用 Workload Identity。
+
+### GKE 建議權限設定
+
+**1. 建立 GCP Service Account（GSA）**
+
+例如 `stock-ana-task-worker@<PROJECT_ID>.iam.gserviceaccount.com`，授予：
+
+| 用途 | IAM 角色（可再縮小範圍） |
+|---|---|
+| Pub/Sub 拉取 / ack | `roles/pubsub.subscriber` |
+| GCS 讀寫（fsspec，`GCS_USE_ADC=true` 時） | `roles/storage.objectAdmin` 或自訂更細權限 |
+
+**2. 啟用 GKE Workload Identity 並綁定**
+
+```bash
+# K8s ServiceAccount 綁定 GSA
+gcloud iam service-accounts add-iam-policy-binding \
+  stock-ana-task-worker@<PROJECT_ID>.iam.gserviceaccount.com \
+  --role roles/iam.workloadIdentityUser \
+  --member "serviceAccount:<PROJECT_ID>.svc.id.goog[<NAMESPACE>/<KSA_NAME>]"
+```
+
+Deployment 指定：
+
+```yaml
+spec:
+  template:
+    spec:
+      serviceAccountName: stock-ana-task-worker   # K8s SA（含 workload identity 註解）
+```
+
+K8s ServiceAccount 註解範例：
+
+```yaml
+metadata:
+  annotations:
+    iam.gke.io/gcp-service-account: stock-ana-task-worker@<PROJECT_ID>.iam.gserviceaccount.com
+```
+
+**3. GKE 環境變數建議**
+
+| 變數 | GKE 建議 |
+|---|---|
+| `GCS_USE_ADC` | `true`（gcsfs 走 GSA IAM，免 HMAC 給 fsspec） |
+| `GCS_HMAC_*` | **仍需要**（DuckDB httpfs 目前走 HMAC，與 Pub/Sub 憑證無關） |
+| `GOOGLE_APPLICATION_CREDENTIALS` | **不要設**（Workload Identity 自動處理） |
+
+### 憑證與模組對照
+
+```mermaid
+graph LR
+    subgraph Local["本機"]
+        ADC1[gcloud ADC 檔案]
+    end
+    subgraph GKE["GKE Pod"]
+        WI[Workload Identity]
+        ADC2[ADC via metadata]
+        WI --> ADC2
+    end
+
+    ADC1 --> PS[Pub/Sub SubscriberClient]
+    ADC2 --> PS
+    ADC2 --> GCSFS[gcsfs GCS_USE_ADC=true]
+    HMAC[GCS_HMAC_*] --> DuckDB[DuckDB httpfs]
+```
+
+---
+
 ## 延伸說明
 
 組裝與變數對應細節見 [docs/worker_config_assembly.md](docs/worker_config_assembly.md)。
