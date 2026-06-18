@@ -13,8 +13,8 @@ _DEFAULT_MODE_ENV_KEY = "WORKER_MODE"
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="stock-ana-atsk-worker",
-        description="Stock analysis async task worker",
+        prog="stock-ana-task-worker",
+        description="stock-ana-task-worker",
     )
     supported_modes = ", ".join(mode.value for mode in WorkerMode)
     default_mode = os.getenv(_DEFAULT_MODE_ENV_KEY, WorkerMode.CONSUMER.value)
