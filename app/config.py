@@ -23,6 +23,7 @@ class WorkerConfig:
     pg_pool_min_conn: int = 1
     pg_pool_max_conn: int = 10
     shutdown_drain_timeout: float = 30.0
+    app: str = ""
     gcp: GcpWorkerProfile | None = None
     task: TaskWorkerProfile | None = None
 
@@ -60,6 +61,7 @@ class WorkerConfig:
             pg_pool_min_conn=env_int("PG_POOL_MIN_CONN", 1),
             pg_pool_max_conn=env_int("PG_POOL_MAX_CONN", 10),
             shutdown_drain_timeout=float(env_str("SHUTDOWN_DRAIN_TIMEOUT", "30.0")),
+            app=task.app_name,
             gcp=gcp,
             task=task,
         )

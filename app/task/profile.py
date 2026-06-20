@@ -41,3 +41,8 @@ class TaskWorkerProfile:
     @property
     def enabled_values(self) -> tuple[str, ...]:
         return tuple(sorted(event_name.value for event_name in self.enabled_event_names))
+
+    @property
+    def app_name(self) -> str:
+        """模組名稱：task-worker-{WORKER_TASK_TYPES}。"""
+        return f"task-worker-{','.join(self.enabled_values)}"

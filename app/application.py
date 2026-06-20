@@ -48,7 +48,7 @@ class Application:
         if self._bootstrapped:
             return
 
-        setup_logging()
+        setup_logging(self.config.app)
         register_graceful_shutdown()
 
         cloud_assembly = build_cloud_worker_assembly(self.config)
