@@ -1,9 +1,15 @@
+PYTHON ?= python
+
 GHCR_SECRET_NAME ?= ghcr-secret
 HELM_CHART_POSTGRES := ./deployment/helm/charts/postgres
 HELM_CHART_DB_MIGRATE := ./deployment/helm/charts/db-migrate
 K8S_SCRIPT := powershell -NoProfile -ExecutionPolicy Bypass -File .\deployment\scripts\k8s-local.ps1
 
-.PHONY: kind-init limit-workers k8s-namespace k8s-ghcr-secret helm-install-postgres helm-migrate k8s-deploy-local k8s-pg-port-forward k8s-undeploy-postgres
+.PHONY: run kind-init limit-workers k8s-namespace k8s-ghcr-secret helm-install-postgres helm-migrate k8s-deploy-local k8s-pg-port-forward k8s-undeploy-postgres
+
+# 本機啟動 worker（讀取 .env / 環境變數）
+run:
+	$(PYTHON) main.py --mode consumer
 
 kind-init:
 	kind create cluster --config .\deployment\kind\init.yaml --name kind-lab

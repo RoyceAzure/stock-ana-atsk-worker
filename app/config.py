@@ -1,28 +1,12 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
 from app.cloud.gcp_profile import GcpWorkerProfile
 from app.cloud.provider import CloudProvider
+from app.env import ensure_env_loaded, env_int, env_str
 from app.task.profile import TaskWorkerProfile
 from infra.repo.pg_dao import DBConfig
-
-
-def _env_str(key: str, default: str | None = None) -> str:
-    value = os.getenv(key)
-    if value is None or value == "":
-        if default is None:
-            raise ValueError(f"缺少必要環境變數: {key}")
-        return default
-    return value
-
-
-def _env_int(key: str, default: int) -> int:
-    raw = os.getenv(key)
-    if raw is None or raw == "":
-        return default
-    return int(raw)
 
 
 @dataclass(frozen=True)
@@ -44,7 +28,9 @@ class WorkerConfig:
 
     @classmethod
     def from_env(cls) -> WorkerConfig:
-        provider_raw = _env_str("CLOUD_PROVIDER", CloudProvider.GCP.value).lower()
+        ensure_env_loaded()
+
+        provider_raw = env_str("CLOUD_PROVIDER", CloudProvider.GCP.value).lower()
         try:
             cloud_provider = CloudProvider(provider_raw)
         except ValueError as exc:
@@ -65,17 +51,15 @@ class WorkerConfig:
 
         return cls(
             cloud_provider=cloud_provider,
-            pg_host=_env_str("PG_HOST", "localhost"),
-            pg_database=_env_str("PG_DATABASE", "sexy_stock"),
-            pg_user=_env_str("PG_USER", "postgres"),
-            pg_password=_env_str("PG_PASSWORD", "password"),
-            pg_port=_env_int("PG_PORT", 5432),
-            duckdb_pool_size=_env_int("DUCKDB_POOL_SIZE", 10),
-            pg_pool_min_conn=_env_int("PG_POOL_MIN_CONN", 1),
-            pg_pool_max_conn=_env_int("PG_POOL_MAX_CONN", 10),
-            shutdown_drain_timeout=float(
-                _env_str("SHUTDOWN_DRAIN_TIMEOUT", "30.0")
-            ),
+            pg_host=env_str("PG_HOST", "localhost"),
+            pg_database=env_str("PG_DATABASE", "sexy_stock"),
+            pg_user=env_str("PG_USER", "postgres"),
+            pg_password=env_str("PG_PASSWORD", "password"),
+            pg_port=env_int("PG_PORT", 5432),
+            duckdb_pool_size=env_int("DUCKDB_POOL_SIZE", 10),
+            pg_pool_min_conn=env_int("PG_POOL_MIN_CONN", 1),
+            pg_pool_max_conn=env_int("PG_POOL_MAX_CONN", 10),
+            shutdown_drain_timeout=float(env_str("SHUTDOWN_DRAIN_TIMEOUT", "30.0")),
             gcp=gcp,
             task=task,
         )
@@ -93,4 +77,3 @@ class WorkerConfig:
     @property
     def db_config_dict(self) -> dict:
         return self.db_config.as_dict()
-

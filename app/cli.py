@@ -1,30 +1,29 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from typing import Optional, Sequence
 
 from app.application import Application
+from app.env import ensure_env_loaded, env_str
 from app.mode import WorkerMode
-
-_DEFAULT_MODE_ENV_KEY = "WORKER_MODE"
 
 
 def build_parser() -> argparse.ArgumentParser:
+    ensure_env_loaded()
     parser = argparse.ArgumentParser(
         prog="stock-ana-task-worker",
         description="stock-ana-task-worker",
     )
     supported_modes = ", ".join(mode.value for mode in WorkerMode)
-    default_mode = os.getenv(_DEFAULT_MODE_ENV_KEY, WorkerMode.CONSUMER.value)
+    default_mode = env_str("WORKER_MODE", WorkerMode.CONSUMER.value)
     parser.add_argument(
         "--mode",
         choices=[mode.value for mode in WorkerMode],
         default=default_mode,
         help=(
             f"執行模式（預設: {WorkerMode.CONSUMER.value}，"
-            f"亦可設環境變數 {_DEFAULT_MODE_ENV_KEY}）。支援: {supported_modes}"
+            f"亦可設環境變數 WORKER_MODE）。支援: {supported_modes}"
         ),
     )
     return parser

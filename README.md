@@ -34,7 +34,7 @@ python main.py --mode consumer
 | 變數 | 說明 |
 |---|---|
 | `GCP_PROJECT_ID` | GCP 專案 ID |
-| `GCP_SUBSCRIPTION_ID` | Pub/Sub 訂閱名稱（此 Pod 監聽的 queue） |
+| `GCP_TASK_SUBSCRIPTION_ID` | Pub/Sub 訂閱名稱（此 Pod 監聽的 queue） |
 | `OBJECT_STORAGE_BUCKET_BASE_PATH` | GCS 寫入路徑，格式 `bucket名稱/前綴` |
 | `GCS_HMAC_ACCESS_KEY` | GCS HMAC 金鑰（DuckDB 讀寫 GCS 必填） |
 | `GCS_HMAC_SECRET_KEY` | GCS HMAC 密鑰 |
@@ -76,7 +76,7 @@ CLOUD_PROVIDER=gcp
 WORKER_TASK_TYPES=preprocessing
 
 GCP_PROJECT_ID=my-project
-GCP_SUBSCRIPTION_ID=preprocess-sub
+GCP_TASK_SUBSCRIPTION_ID=preprocess-sub
 
 STORAGE_BACKEND=gcs
 OBJECT_STORAGE_BUCKET_BASE_PATH=my-bucket/data

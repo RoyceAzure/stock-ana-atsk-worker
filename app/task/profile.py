@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
+from app.env import env_str
 from models.task_event import EventName
 
 _DEFAULT_TASK_TYPE = EventName.PREPROCESS.value
@@ -35,7 +35,7 @@ class TaskWorkerProfile:
 
     @classmethod
     def from_env(cls) -> TaskWorkerProfile:
-        raw = os.getenv("WORKER_TASK_TYPES", _DEFAULT_TASK_TYPE)
+        raw = env_str("WORKER_TASK_TYPES", _DEFAULT_TASK_TYPE)
         return cls(enabled_event_names=_parse_event_names(raw))
 
     @property

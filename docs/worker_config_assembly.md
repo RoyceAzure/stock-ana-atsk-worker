@@ -255,7 +255,7 @@ sequenceDiagram
 | 環境變數 | Config 欄位 | 必填 | 預設值 | 說明 |
 |---|---|:---:|---|---|
 | `GCP_PROJECT_ID` | `project_id` | 是 | — | GCP 專案 ID |
-| `GCP_SUBSCRIPTION_ID` | `subscription_id` | 是 | — | Pub/Sub Subscription |
+| `GCP_TASK_SUBSCRIPTION_ID` | `subscription_id` | 是 | — | Pub/Sub Subscription |
 | `OBJECT_STORAGE_BUCKET_BASE_PATH` | `object_storage_bucket_base_path` | 是 | — | GCS bucket/prefix 基底路徑 |
 | `STORAGE_BACKEND` | （驗證用） | 否 | `gcs` | 必須為 `gcs`，否則拋錯 |
 | `PUBSUB_BATCH_SIZE` | `pubsub_batch_size` | 否 | `10` | 單次 pull 最大訊息數 |
@@ -411,7 +411,7 @@ WorkerConfig                          ← WorkerConfig.from_env()
 ├── pg_* / duckdb_pool_size / pg_pool_* / shutdown_drain_timeout
 ├── gcp: GcpWorkerProfile             ← GcpWorkerProfile.from_env()
 │   ├── project_id          ← GCP_PROJECT_ID
-│   ├── subscription_id     ← GCP_SUBSCRIPTION_ID
+│   ├── subscription_id     ← GCP_TASK_SUBSCRIPTION_ID
 │   ├── object_storage_bucket_base_path ← OBJECT_STORAGE_BUCKET_BASE_PATH
 │   └── pubsub_*            ← PUBSUB_*
 └── task: TaskWorkerProfile           ← TaskWorkerProfile.from_env()
