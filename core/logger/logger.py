@@ -1,12 +1,26 @@
 import logging
-import logging.config
 import sys
+from typing import Final
 
 from pythonjsonlogger.json import JsonFormatter
 
-# 本地開發可改 formatter_cls 為 logging.Formatter 並使用 STANDARD_LOG_FORMAT
+LOG_LEVEL_INFO: Final[str] = "info"
+LOG_LEVEL_DEBUG: Final[str] = "debug"
+SUPPORTED_LOG_LEVELS: Final[tuple[str, ...]] = (LOG_LEVEL_INFO, LOG_LEVEL_DEBUG)
+
 JSON_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 STANDARD_LOG_FORMAT = "[%(asctime)s] %(level)s [%(app)s] [%(name)s.%(funcName)s:%(lineno)d] %(message)s"
+
+
+def parse_log_level(raw: str) -> int:
+    """解析 log_level（info / debug）為 logging 等級常數。"""
+    normalized = raw.strip().lower()
+    if normalized == LOG_LEVEL_DEBUG:
+        return logging.DEBUG
+    if normalized == LOG_LEVEL_INFO:
+        return logging.INFO
+    supported = ", ".join(SUPPORTED_LOG_LEVELS)
+    raise ValueError(f"不支援的 LOG_LEVEL: {raw}（支援: {supported}）")
 
 
 class AppJsonFormatter(JsonFormatter):
@@ -33,10 +47,15 @@ class AppStandardFormatter(logging.Formatter):
         return super().format(record)
 
 
-def setup_logging(app: str, *, use_json: bool = True) -> None:
+def setup_logging(
+    app: str,
+    *,
+    level: int = logging.INFO,
+    use_json: bool = True,
+) -> None:
     """初始化全域日誌；app 為模組名稱（例：task-worker-preprocessing）。"""
     handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.INFO)
+    handler.setLevel(level)
     if use_json:
         handler.setFormatter(AppJsonFormatter(app))
     else:
@@ -45,4 +64,4 @@ def setup_logging(app: str, *, use_json: bool = True) -> None:
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(handler)
-    root.setLevel(logging.INFO)
+    root.setLevel(level)

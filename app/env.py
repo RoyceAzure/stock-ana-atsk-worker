@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from core.config.config import Config
+from core.logger.logger import parse_log_level
 
 
 def ensure_env_loaded() -> Config:
@@ -27,3 +28,8 @@ def env_int(key: str, default: int) -> int:
     if raw is None or raw == "":
         return default
     return int(raw)
+
+
+def env_log_level(default: str = "info") -> int:
+    """讀取 LOG_LEVEL（info / debug），預設 info。"""
+    return parse_log_level(env_str("LOG_LEVEL", default))

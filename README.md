@@ -57,6 +57,7 @@ python main.py --mode consumer
 | 變數 | 預設 | 說明 |
 |---|---|---|
 | `WORKER_MODE` | `consumer` | 等同 `--mode`，CLI 未指定時使用 |
+| `LOG_LEVEL` | `info` | 日誌等級，僅支援 `info`、`debug` |
 | `DUCKDB_POOL_SIZE` | `10` | DuckDB 連線池大小 |
 | `PG_POOL_MIN_CONN` | `1` | PostgreSQL 連線池最小連線數 |
 | `PG_POOL_MAX_CONN` | `10` | PostgreSQL 連線池最大連線數 |

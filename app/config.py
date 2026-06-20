@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from app.cloud.gcp_profile import GcpWorkerProfile
 from app.cloud.provider import CloudProvider
-from app.env import ensure_env_loaded, env_int, env_str
+from app.env import ensure_env_loaded, env_int, env_log_level, env_str
 from app.task.profile import TaskWorkerProfile
 from infra.repo.pg_dao import DBConfig
 
@@ -23,6 +24,7 @@ class WorkerConfig:
     pg_pool_min_conn: int = 1
     pg_pool_max_conn: int = 10
     shutdown_drain_timeout: float = 30.0
+    log_level: int = logging.INFO
     app: str = ""
     gcp: GcpWorkerProfile | None = None
     task: TaskWorkerProfile | None = None
@@ -61,6 +63,7 @@ class WorkerConfig:
             pg_pool_min_conn=env_int("PG_POOL_MIN_CONN", 1),
             pg_pool_max_conn=env_int("PG_POOL_MAX_CONN", 10),
             shutdown_drain_timeout=float(env_str("SHUTDOWN_DRAIN_TIMEOUT", "30.0")),
+            log_level=env_log_level(),
             app=task.app_name,
             gcp=gcp,
             task=task,
