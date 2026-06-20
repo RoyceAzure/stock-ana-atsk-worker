@@ -6,6 +6,7 @@ import uuid
 from infra.repo.pg_dao import DatabaseRepository
 from models.task_event import EventStage, TaskEvent, TaskEventStatus, UpdateTaskEventParams
 from models.task_result import ConsumerResult, TaskResult
+from core.logger.task_context import task_log_context
 
 logger = logging.getLogger(__name__)
 
@@ -59,19 +60,20 @@ class TaskEventHelper:
             result: 任務執行結果
         """
         try:
-            status = (TaskEventStatus.TaskStatusCompleted.value         
-                    if result.is_successed.value == ConsumerResult.SUCCESSED.value                      
-                    else TaskEventStatus.TaskStatusFailed.value)  
-            
-            self.update_task_event(
-                task_id=result.id,
-                status=status,
-                stage=stage,
-                error_message=result.message if result.is_successed.value == ConsumerResult.FAILED.value else ""
-            )
-            logger.info(f"taskid :{result.id} 任務狀態更新完成")
+            with task_log_context(result.id):
+                status = (TaskEventStatus.TaskStatusCompleted.value         
+                        if result.is_successed.value == ConsumerResult.SUCCESSED.value                      
+                        else TaskEventStatus.TaskStatusFailed.value)  
+                
+                self.update_task_event(
+                    task_id=result.id,
+                    status=status,
+                    stage=stage,
+                    error_message=result.message if result.is_successed.value == ConsumerResult.FAILED.value else ""
+                )
+                logger.info("任務狀態更新完成")
         except Exception as e:
-            logger.error(f"任務成功，但是更新任務狀態失敗: {e}")
+            logger.error("任務成功，但是更新任務狀態失敗: %s", e)
 
 
     def handle_error(self, task_id: str, stage: EventStage, error: Exception) -> None:
@@ -83,15 +85,16 @@ class TaskEventHelper:
             error: 捕獲到的異常
         """
         try:
-            self.update_task_event(
-                task_id=task_id,
-                status=TaskEventStatus.TaskStatusFailed.value,
-                stage=stage,
-                error_message=str(error)
-            )
-            logger.error(f"{self.__class__.__name__} 任務失敗: {error}")
+            with task_log_context(task_id):
+                self.update_task_event(
+                    task_id=task_id,
+                    status=TaskEventStatus.TaskStatusFailed.value,
+                    stage=stage,
+                    error_message=str(error)
+                )
+                logger.error("%s 任務失敗: %s", self.__class__.__name__, error)
         except Exception as e:
-            logger.error(f"任務失敗，且更新任務狀態失敗: {e}")
+            logger.error("任務失敗，且更新任務狀態失敗: %s", e)
 
 
     def _get_task_event(self, message: bytes) -> TaskEvent:

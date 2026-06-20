@@ -5,6 +5,7 @@ from service.task.handler import TaskHandler
 from service.taskevent.helper import TaskEventHelper
 from core.life_cycle.lifecycle import shutdown_event
 from core.error.task_error import  TransientError, PermanentError
+from core.logger.task_context import task_log_context
 
 logger = logging.getLogger(__name__)
 
@@ -39,17 +40,20 @@ class TaskCoordinator(ITaskCoordinator):
         Args:
             task_event: 任務事件
         """
-        final_stage = TaskEventStatus.TaskStatusCompleted
-        event_stage = self.task_handler.get_stage
-        err_msg = ""
-        try:
-            self._excute_with_retry(task_event)
-        except Exception as e:
-            err_msg = f"發生錯誤 [{type(e).__name__}]: {str(e)}"
-            final_stage = TaskEventStatus.TaskStatusFailed
-            raise
-        finally:
-            self.task_event_helper.update_task_event(task_event.id, final_stage, event_stage, err_msg)
+        with task_log_context(task_event.id):
+            final_stage = TaskEventStatus.TaskStatusCompleted
+            event_stage = self.task_handler.get_stage
+            err_msg = ""
+            try:
+                self._excute_with_retry(task_event)
+            except Exception as e:
+                err_msg = f"發生錯誤 [{type(e).__name__}]: {str(e)}"
+                final_stage = TaskEventStatus.TaskStatusFailed
+                raise
+            finally:
+                self.task_event_helper.update_task_event(
+                    task_event.id, final_stage, event_stage, err_msg
+                )
 
 
     def _excute_with_retry(self, task_event: TaskEvent) -> None:
@@ -67,11 +71,15 @@ class TaskCoordinator(ITaskCoordinator):
                 if attempt < max_retries - 1:
                     sleep_time = base_backoff * (2 ** attempt) # 指數退避
 
-                    print(f"遇到瞬態錯誤 {e}，等待 {sleep_time} 秒後重試...")
+                    logger.warning(
+                        "遇到瞬態錯誤，等待 %s 秒後重試: %s",
+                        sleep_time,
+                        e,
+                    )
 
                     if shutdown_event.wait(timeout=sleep_time):
-                        logging.error("Shutdown interrupted retry")
+                        logger.error("關閉訊號中斷重試")
                 else:
                     # 重試達上限，將拋出例外讓外層收尾
-                    logging.error("Max retries reached for transient")
+                    logger.error("瞬態錯誤重試次數已達上限")
                     raise PermanentError(e)

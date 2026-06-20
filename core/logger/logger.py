@@ -4,12 +4,17 @@ from typing import Final
 
 from pythonjsonlogger.json import JsonFormatter
 
+from core.logger.task_context import TaskContextFilter
+
 LOG_LEVEL_INFO: Final[str] = "info"
 LOG_LEVEL_DEBUG: Final[str] = "debug"
 SUPPORTED_LOG_LEVELS: Final[tuple[str, ...]] = (LOG_LEVEL_INFO, LOG_LEVEL_DEBUG)
 
 JSON_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
-STANDARD_LOG_FORMAT = "[%(asctime)s] %(level)s [%(app)s] [%(name)s.%(funcName)s:%(lineno)d] %(message)s"
+STANDARD_LOG_FORMAT = (
+    "[%(asctime)s] %(level)s [%(app)s] [%(task_event_id)s] "
+    "[%(name)s.%(funcName)s:%(lineno)d] %(message)s"
+)
 
 
 def parse_log_level(raw: str) -> int:
@@ -24,7 +29,7 @@ def parse_log_level(raw: str) -> int:
 
 
 class AppJsonFormatter(JsonFormatter):
-    """JSON log：固定欄位 app、levelname 簡化為 level。"""
+    """JSON log：固定欄位 app、level；任務期間附加 task_event_id。"""
 
     def __init__(self, app: str) -> None:
         super().__init__(
@@ -33,9 +38,20 @@ class AppJsonFormatter(JsonFormatter):
             static_fields={"app": app},
         )
 
+    def add_fields(
+        self,
+        log_record: dict,
+        record: logging.LogRecord,
+        message_dict: dict,
+    ) -> None:
+        super().add_fields(log_record, record, message_dict)
+        task_event_id = getattr(record, "task_event_id", None)
+        if task_event_id:
+            message_dict["task_event_id"] = task_event_id
+
 
 class AppStandardFormatter(logging.Formatter):
-    """純文字 log（本地除錯用）：含 app、level。"""
+    """純文字 log（本地除錯用）：含 app、level、task_event_id。"""
 
     def __init__(self, app: str) -> None:
         super().__init__(fmt=STANDARD_LOG_FORMAT)
@@ -44,6 +60,7 @@ class AppStandardFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         record.app = self._app
         record.level = record.levelname
+        record.task_event_id = getattr(record, "task_event_id", None) or "-"
         return super().format(record)
 
 
@@ -56,6 +73,7 @@ def setup_logging(
     """初始化全域日誌；app 為模組名稱（例：task-worker-preprocessing）。"""
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(level)
+    handler.addFilter(TaskContextFilter())
     if use_json:
         handler.setFormatter(AppJsonFormatter(app))
     else:
