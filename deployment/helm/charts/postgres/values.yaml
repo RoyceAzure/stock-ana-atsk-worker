@@ -7,6 +7,7 @@ image:
 imagePullSecretName: ""
 
 # 資料庫核心設定與效能調校
+# 預設值；本機 k8s-local.ps1 若根目錄 .env 有 PG_DATABASE / PG_USER / PG_PASSWORD 會優先覆寫
 postgresql:
   database: "sexy_stock"
   username: "postgres"

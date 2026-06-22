@@ -37,6 +37,36 @@ Load-DotEnv -Path $EnvFile
 
 $GhcrSecretName = if ($env:GHCR_SECRET_NAME) { $env:GHCR_SECRET_NAME } else { 'ghcr-secret' }
 
+function Add-HelmSetFromEnv {
+    param(
+        [System.Collections.Generic.List[string]]$Target,
+        [string]$EnvName,
+        [string]$HelmKey
+    )
+    $value = [Environment]::GetEnvironmentVariable($EnvName, 'Process')
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return
+    }
+    $Target.Add('--set')
+    $Target.Add("${HelmKey}=$value")
+    Write-Host "[INFO] Helm ${HelmKey} from .env (${EnvName})"
+}
+
+function Get-PostgresHelmSetArgs {
+    $sets = [System.Collections.Generic.List[string]]::new()
+    Add-HelmSetFromEnv -Target $sets -EnvName 'PG_DATABASE' -HelmKey 'postgresql.database'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'PG_USER' -HelmKey 'postgresql.username'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'PG_PASSWORD' -HelmKey 'postgresql.password'
+    return $sets
+}
+
+function Get-MigrateHelmSetArgs {
+    $sets = [System.Collections.Generic.List[string]]::new()
+    Add-HelmSetFromEnv -Target $sets -EnvName 'PG_DATABASE' -HelmKey 'postgres.database'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'PG_USER' -HelmKey 'postgres.username'
+    return $sets
+}
+
 function Ensure-Namespace {
     Require-EnvVar 'K8S_NAMESPACE'
     kubectl create namespace $env:K8S_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
@@ -57,9 +87,19 @@ function Ensure-GhcrSecret {
 function Install-Postgres {
     Require-EnvVar 'K8S_RELEASE_NAME'
     Require-EnvVar 'K8S_NAMESPACE'
-    helm upgrade --install $env:K8S_RELEASE_NAME $ChartPath `
-        --namespace $env:K8S_NAMESPACE `
-        --set "imagePullSecretName=$GhcrSecretName"
+    $helmArgs = [System.Collections.Generic.List[string]]::new()
+    $helmArgs.Add('upgrade')
+    $helmArgs.Add('--install')
+    $helmArgs.Add($env:K8S_RELEASE_NAME)
+    $helmArgs.Add($ChartPath)
+    $helmArgs.Add('--namespace')
+    $helmArgs.Add($env:K8S_NAMESPACE)
+    $helmArgs.Add('--set')
+    $helmArgs.Add("imagePullSecretName=$GhcrSecretName")
+    foreach ($arg in (Get-PostgresHelmSetArgs)) {
+        $helmArgs.Add($arg)
+    }
+    & helm @helmArgs
 }
 
 function Get-MigrateReleaseName {
@@ -89,11 +129,24 @@ function Install-DbMigrate {
     Require-EnvVar 'K8S_NAMESPACE'
     Sync-MigrationFiles
     $migrateRelease = Get-MigrateReleaseName
-    helm upgrade --install $migrateRelease $MigrateChartPath `
-        --namespace $env:K8S_NAMESPACE `
-        --set "postgres.releaseName=$($env:K8S_RELEASE_NAME)" `
-        --set "imagePullSecretName=$GhcrSecretName" `
-        --wait --timeout 5m
+    $helmArgs = [System.Collections.Generic.List[string]]::new()
+    $helmArgs.Add('upgrade')
+    $helmArgs.Add('--install')
+    $helmArgs.Add($migrateRelease)
+    $helmArgs.Add($MigrateChartPath)
+    $helmArgs.Add('--namespace')
+    $helmArgs.Add($env:K8S_NAMESPACE)
+    $helmArgs.Add('--set')
+    $helmArgs.Add("postgres.releaseName=$($env:K8S_RELEASE_NAME)")
+    $helmArgs.Add('--set')
+    $helmArgs.Add("imagePullSecretName=$GhcrSecretName")
+    foreach ($arg in (Get-MigrateHelmSetArgs)) {
+        $helmArgs.Add($arg)
+    }
+    $helmArgs.Add('--wait')
+    $helmArgs.Add('--timeout')
+    $helmArgs.Add('5m')
+    & helm @helmArgs
     Write-Host "Migration job completed (golang-migrate up is idempotent)."
 }
 

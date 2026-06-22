@@ -5,6 +5,7 @@ wait:
   image: busybox:1.36
 
 # 對應 postgres chart 的 release 名稱（同 namespace 內）
+# database / username 預設值；k8s-local.ps1 若 .env 有 PG_DATABASE / PG_USER 會優先覆寫
 postgres:
   releaseName: dev
   database: sexy_stock
