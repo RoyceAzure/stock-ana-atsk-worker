@@ -1,3 +1,4 @@
+import json
 import logging
 import threading
 import time
@@ -7,10 +8,11 @@ from typing import Any, Dict, Optional, Protocol
 from google.api_core import retry
 from google.api_core.exceptions import DeadlineExceeded
 from google.cloud import pubsub_v1
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from core.life_cycle.lifecycle import shutdown_event
-from models.task_event import TaskEvent
+from models.task_event import EventStage, TaskEvent, TaskEventStatus
+from models.task_message import TaskMessage
 from service.task.task_coordinator import ITaskCoordinator
 from service.taskevent.helper import TaskEventHelper
 
@@ -119,7 +121,7 @@ class GCPMessageConsumer(IMessageConsumer):
                             "[Worker] 收到關閉訊號，停止處理本批次剩餘訊息"
                         )
                         break
-
+                    logger.info("[Worker] 開始處理任務 %s", msg.message.data)
                     self._process_message(msg, pending_ack_ids)
 
                 if pending_ack_ids:
@@ -164,41 +166,74 @@ class GCPMessageConsumer(IMessageConsumer):
 
         self._closed = True
 
-    def _process_message(self, msg, pending_ack_ids: list[str]) -> None:
+    def _ack_message(self, ack_id: str) -> None:
+        self.subscriber.acknowledge(
+            request={
+                "subscription": self.subscription_path,
+                "ack_ids": [ack_id],
+            }
+        )
+
+    def _parse_task_message(self, raw_data: bytes) -> TaskMessage:
+        raw = raw_data.decode("utf-8")
+        payload = json.loads(raw)
+        return TaskMessage.model_validate(payload)
+
+    def _prepare_task_event(self, msg) -> Optional[TaskEvent]:
+        """解析 JSON 訊息、驗證 task_id、claim DB 並組裝 TaskEvent。失敗時回傳 None。"""
         task_id = ""
         try:
-            task_id = msg.message.data.decode("utf-8")
-            payload = self.db_claim_task(task_id)
+            task_message = self._parse_task_message(msg.message.data)
+            task_id = str(task_message.task_id)
+        except UnicodeDecodeError as exc:
+            logger.error("[Worker] 任務解析訊息失敗: %s", exc)
+            return None
+        except json.JSONDecodeError as exc:
+            logger.error("[Worker] 任務訊息非有效 JSON: %s", exc)
+            return None
+        except ValidationError as exc:
+            logger.error("[Worker] 任務訊息格式無效: %s", exc)
+            return None
 
+        try:
+            payload = self.db_claim_task(task_id)
             if not payload:
-                self.subscriber.acknowledge(
-                    request={
-                        "subscription": self.subscription_path,
-                        "ack_ids": [msg.ack_id],
-                    }
+                logger.warning("[Worker] 任務 %s 不存在或無法 claim", task_id)
+                self.task_event_helper.update_task_event(
+                    task_id,
+                    TaskEventStatus.TaskStatusFailed,
+                    EventStage.CLAIM_STAGE,
+                    "Task not found",
                 )
-            else:
-                task_event = TaskEvent.from_dict(payload)
-                with self._track_in_flight():
-                    self.task_cooridinaor.execute(task_event)
-                self.subscriber.acknowledge(
-                    request={
-                        "subscription": self.subscription_path,
-                        "ack_ids": [msg.ack_id],
-                    }
-                )
+                return None
+            return TaskEvent.from_dict(payload)
         except Exception as exc:
-            if task_id:
-                logger.error("[Worker] 任務 %s 發生例外: %s", task_id, exc)
-            else:
-                logger.error("[Worker] 任務解析訊息失敗: %s", exc)
-            self.subscriber.acknowledge(
-                request={
-                    "subscription": self.subscription_path,
-                    "ack_ids": [msg.ack_id],
-                }
+            logger.error("[Worker] 任務 %s 準備階段失敗: %s", task_id, exc)
+            self.task_event_helper.handle_error(
+                task_id, EventStage.CLAIM_STAGE, exc
             )
+            return None
+
+    def _execute_task_event(self, task_event: TaskEvent) -> None:
+        task_id = str(task_event.id)
+        try:
+            with self._track_in_flight():
+                self.task_cooridinaor.execute(task_event)
+        except Exception as exc:
+            logger.error("[Worker] 任務 %s 執行失敗: %s", task_id, exc)
+            try:
+                stage = EventStage(task_event.event_stage)
+            except ValueError:
+                stage = EventStage.CLAIM_STAGE
+            self.task_event_helper.handle_error(task_id, stage, exc)
+
+    def _process_message(self, msg, pending_ack_ids: list[str]) -> None:
+        try:
+            task_event = self._prepare_task_event(msg)
+            if task_event is not None:
+                self._execute_task_event(task_event)
         finally:
+            self._ack_message(msg.ack_id)
             if msg.ack_id in pending_ack_ids:
                 pending_ack_ids.remove(msg.ack_id)
 

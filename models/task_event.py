@@ -16,6 +16,7 @@ class TaskEventStatus(Enum):
  
 class EventStage(Enum):
     INIT_STAGE    = "init"
+    CLAIM_STAGE   = "claim"
     RAW_STAGE    = "download_raw_data"
     PRE_STAGE  = "preprocessing"
     BACKTEST_STAGE     = "backtesting"
