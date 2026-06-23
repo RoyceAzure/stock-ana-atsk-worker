@@ -34,8 +34,9 @@ class AppJsonFormatter(JsonFormatter):
     def __init__(self, app: str) -> None:
         super().__init__(
             fmt=JSON_LOG_FORMAT,
-            rename_fields={"levelname": "level"},
+            rename_fields={"levelname": "level", "asctime": "timestamp"},
             static_fields={"app": app},
+            json_ensure_ascii=False,
         )
 
     def add_fields(

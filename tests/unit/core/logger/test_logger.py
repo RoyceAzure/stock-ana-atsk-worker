@@ -28,6 +28,17 @@ def test_setup_logging_debug_emits_debug_records(capsys):
     assert "debug-msg" in captured
 
 
+def test_setup_logging_json_uses_timestamp_and_unicode_message(capsys):
+    setup_logging("task-worker-preprocessing", level=logging.INFO)
+    logging.getLogger("test.logger").info("資源釋放完成")
+
+    captured = capsys.readouterr().out.strip()
+    assert '"timestamp":' in captured
+    assert '"asctime":' not in captured
+    assert "資源釋放完成" in captured
+    assert "\\u8cc7" not in captured
+
+
 def test_setup_logging_info_suppresses_debug(capsys):
     setup_logging("task-worker-preprocessing", level=logging.INFO)
     logging.getLogger("test.logger").debug("hidden")
