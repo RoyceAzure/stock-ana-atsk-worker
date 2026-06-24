@@ -1,8 +1,37 @@
 import json
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Union
+
 import pandas as pd
-from util.generate_util import format_date_to_utc_midnight
+
 from infra.repo.data_loaders.base import DataLoader
+from util.generate_util import format_date_to_utc_midnight
+
+_OHLC_COLUMNS = ("open", "high", "low", "close")
+
+
+def _coerce_ohlc_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """PG decimal(10,2) 經 psycopg2 會是 Decimal/object，轉成 float64 供 Pandera 驗證。"""
+    for col in _OHLC_COLUMNS:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
+def _parse_code_list(code: Union[str, List[Any], Tuple[Any, ...]]) -> List[str]:
+    """將 code 參數正規化為字串列表（trade_price.code 為 varchar）。"""
+    if isinstance(code, str):
+        if code.startswith("["):
+            parsed = json.loads(code)
+            if not isinstance(parsed, list):
+                raise ValueError(f"code JSON must be a list, got {type(parsed).__name__}")
+            raw_list = parsed
+        else:
+            raw_list = [code]
+    else:
+        raw_list = list(code)
+
+    return [str(item).strip() for item in raw_list if str(item).strip()]
+
 
 class SQLLoader(DataLoader):
     """_summary_
@@ -40,19 +69,11 @@ class SQLLoader(DataLoader):
 
 
             if code != "*":
-                if isinstance(code, str):
-                    if code.startswith("["):
-                        code_list = json.loads(code)  # 解析 '["1103", "1104"]'
-                    else:
-                        code_list = [code]            # 處理單一字串 '1103'
-                else:
-                    code_list = list(code)            # 處理原生 list
+                code_list = _parse_code_list(code)
 
-                # 2. 使用 ANY 語法：不需計算 placeholders，直接傳入整個 list
                 if code_list:
-                    filters.append("code = ANY(%s)")
+                    filters.append("code = ANY(%s::text[])")
                     params.append(code_list)
-
             # 決定時間過濾要使用的欄位名稱
 
             # Start Time 過濾
@@ -85,8 +106,8 @@ class SQLLoader(DataLoader):
                 res = cursor.fetchall()
                 self.conn.commit()
                 data_df = pd.DataFrame(res, columns=columns)
+                data_df = _coerce_ohlc_columns(data_df)
                 data_df = data_df.sort_values("trade_time", ascending=True)
-
                 return data_df, None
         except Exception as e:
             self.conn.rollback()

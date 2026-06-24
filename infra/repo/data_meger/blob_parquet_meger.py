@@ -86,6 +86,22 @@ class BlobParquetMerger:
         if self.fs.exists(folder):
             self.fs.rm(folder, recursive=True)
 
+    def _move_dataset_folder(self, src_folder: str, dst_folder: str) -> None:
+        """將虛擬 dataset 資料夾（*.parquet/ 下的 part、_SUCCESS）搬到目標路徑。
+
+        s3fs 的 recursive move 在資料夾名稱以 .parquet 結尾時會誤當單一物件而失敗，
+        改以 glob + cp + rm 逐檔搬移。
+        """
+        src = self._normalize_dataset_folder(src_folder)
+        dst = self._normalize_dataset_folder(dst_folder)
+        children = self.fs.glob(f"{src}/*")
+        if not children:
+            raise FileNotFoundError(f"dataset folder is empty or missing: {src}")
+        for path in children:
+            name = path.rsplit("/", 1)[-1]
+            self.fs.cp(path, f"{dst}/{name}")
+        self.fs.rm(src, recursive=True)
+
     def _cleanup_old_datasets(
         self, code: str, candle: str, keep_folder: str
     ) -> None:
@@ -160,7 +176,7 @@ class BlobParquetMerger:
                             pass
 
                     self._remove_dataset_folder(final_path)
-                    self.fs.move(temp_path, final_path, recursive=True)
+                    self._move_dataset_folder(temp_path, final_path)
                     moved = True
                     self._cleanup_old_datasets(code, candle, final_path)
                     logger.info(

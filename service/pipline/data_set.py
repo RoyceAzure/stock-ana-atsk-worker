@@ -40,7 +40,7 @@ class IDataSet(ABC, Generic[T]):
             if err is not None:
                 return None, err
 
-            err = self._validate(source_df)
+            err = self._validate_schema(source_df)
             if err is not None:
                 return None, err
 
@@ -48,14 +48,6 @@ class IDataSet(ABC, Generic[T]):
 
         except Exception as e:
             return None, str(e)
-
-    def _validate(self, df: T) -> Optional[str]:
-        """
-        驗證數據（預設使用 Pandera expected_schema）
-        Returns:
-            Optional[str]: 錯誤訊息
-        """
-        return self._validate_schema(df)
 
     def _validate_schema(self, df: pd.DataFrame) -> Optional[str]:
         if self.expected_schema is None:
