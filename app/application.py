@@ -13,6 +13,9 @@ from core.logger.logger import setup_logging
 from infra.repo.duckdb_manager import DuckDBManager
 from infra.repo.object_storage import create_parquet_merger
 from infra.repo.pg_dao import DBPoolConfig, DatabasePool, DatabaseRepository
+from infra.repo.pipline_model.trade_price_sink_factory import (
+    create_trade_price_parquet_sink,
+)
 from service.consumer.gcp_consumer import GCPMessageConsumer, IMessageConsumer
 from service.task.task_factory import TaskHandlerDeps
 from service.taskevent.helper import TaskEventHelper
@@ -73,6 +76,11 @@ class Application:
             cloud_assembly.object_storage_bucket_base_path,
             cloud_assembly.storage_config,
         )
+        trade_price_data_sink = create_trade_price_parquet_sink(
+            cloud_assembly.object_storage_bucket_base_path,
+            cloud_assembly.storage_config,
+            DuckDBManager.get_conn(),
+        )
 
         assert self.config.task is not None
         task_assembly = build_task_worker_assembly(
@@ -80,7 +88,7 @@ class Application:
             task_event_helper,
             TaskHandlerDeps(
                 pg_pool=self._pg_pool,
-                duckdb_conn=DuckDBManager.get_conn(),
+                trade_price_data_sink=trade_price_data_sink,
                 parquet_merger=parquet_merger,
             ),
         )

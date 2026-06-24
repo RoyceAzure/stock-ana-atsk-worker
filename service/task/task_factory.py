@@ -3,10 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, Optional, Protocol
 
-import duckdb
-
 from infra.repo.data_meger.blob_parquet_meger import BlobParquetMerger
 from infra.repo.pg_dao import DatabasePool
+from infra.repo.pipline_model.data_sink import IDataSink
 from models.task_event import EventName, TaskEvent
 from service.task.handler import TaskHandler
 from service.task.pandas_preprocesse_handler import PreProcessPandasTaskProcessor
@@ -22,7 +21,7 @@ class TaskHandlerFactory(Protocol):
 @dataclass(frozen=True)
 class TaskHandlerDeps:
     pg_pool: DatabasePool
-    duckdb_conn: duckdb.DuckDBPyConnection
+    trade_price_data_sink: IDataSink
     parquet_merger: BlobParquetMerger
 
 
@@ -59,7 +58,7 @@ def _register_preprocess(registry: TaskHandlerRegistry, deps: TaskHandlerDeps) -
         EventName.PREPROCESS,
         lambda: PreProcessPandasTaskProcessor(
             deps.pg_pool.get_connection(),
-            deps.duckdb_conn,
+            deps.trade_price_data_sink,
             deps.parquet_merger,
         ),
     )
@@ -92,14 +91,14 @@ def build_task_handler_registry(
 
 def build_default_task_handler_registry(
     pg_pool: DatabasePool,
-    duckdb_conn: duckdb.DuckDBPyConnection,
+    trade_price_data_sink: IDataSink,
     parquet_meger: BlobParquetMerger,
 ) -> TaskHandlerRegistry:
     """建立預設 registry（僅 preprocessing，供測試與向後相容）。"""
 
     deps = TaskHandlerDeps(
         pg_pool=pg_pool,
-        duckdb_conn=duckdb_conn,
+        trade_price_data_sink=trade_price_data_sink,
         parquet_merger=parquet_meger,
     )
     return build_task_handler_registry([EventName.PREPROCESS], deps)
@@ -121,7 +120,7 @@ def create_coordinator_for_task(
     task_event: TaskEvent,
     task_event_helper: TaskEventHelper,
     pg_pool: DatabasePool,
-    duckdb_conn: duckdb.DuckDBPyConnection,
+    trade_price_data_sink: IDataSink,
     parquet_meger: BlobParquetMerger,
     registry: Optional[TaskHandlerRegistry] = None,
 ) -> TaskCoordinator:
@@ -131,7 +130,7 @@ def create_coordinator_for_task(
     """
 
     resolved_registry = registry or build_default_task_handler_registry(
-        pg_pool, duckdb_conn, parquet_meger
+        pg_pool, trade_price_data_sink, parquet_meger
     )
     factory = TaskCoordinatorFactory(task_event_helper, resolved_registry)
     return factory.create(task_event)

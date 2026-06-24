@@ -8,7 +8,9 @@
 import duckdb
 import pytest
 
-from models.pipline_model.pipline_params import SinkLocationType, SinkParams
+from infra.repo.pipline_model.trade_price_sink_factory import (
+    create_trade_price_parquet_sink,
+)
 from service.pipline.pandas_trade_price_pipline import get_pandas_pre_process_pipline
 from tests.integration.repo.duckdb.conftest import gcs_test_bucket, track_gcs_path
 from tests.integration.service.pipline.trade_price_factory import (
@@ -73,17 +75,14 @@ class TestPandasTradePricePipelineGcs:
         gcs_created_paths: list[str],
     ):
         bucket = gcs_test_bucket()
-        sink_params = SinkParams(
-            location=SinkLocationType.GCS,
-            path=bucket,
-            storage_config=gcs_storage_config,
+        data_sink = create_trade_price_parquet_sink(
+            bucket, gcs_storage_config, duckdb_conn
         )
 
         pipeline = get_pandas_pre_process_pipline(
             pg_conn=mocker.Mock(),
-            sink_parms=sink_params,
+            data_sink=data_sink,
             query_params={"code": TEST_CODE_A},
-            duckdb_conn=duckdb_conn,
         )
 
         df, err = pipeline.run()
@@ -143,17 +142,14 @@ class TestPandasTradePricePipelineGcs:
             gcs_fs, bucket, f"{TEST_MERGE_CODE}_{TEST_CANDLE_DAILY}_*"
         ) == {f"{TEST_MERGE_CODE}_{TEST_CANDLE_DAILY}_2024-01-01_2024-01-01.parquet"}
 
-        sink_params = SinkParams(
-            location=SinkLocationType.GCS,
-            path=bucket,
-            storage_config=gcs_storage_config,
+        data_sink = create_trade_price_parquet_sink(
+            bucket, gcs_storage_config, duckdb_conn
         )
 
         pipeline = get_pandas_pre_process_pipline(
             pg_conn=mocker.Mock(),
-            sink_parms=sink_params,
+            data_sink=data_sink,
             query_params={"code": TEST_MERGE_CODE},
-            duckdb_conn=duckdb_conn,
             parquet_merger=parquet_merger,
         )
 
