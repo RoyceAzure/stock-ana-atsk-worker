@@ -1,0 +1,32 @@
+# Git / IDE
+.git
+.gitignore
+.cursor
+.vscode
+
+# Python
+.venv
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# 本機設定與密鑰（K8s 以 Secret / ConfigMap 注入）
+.env
+.env.*
+!.env.example
+
+# 測試與文件
+tests/
+docs/
+
+# 部署與腳本（映像內不需要）
+deployment/
+script/
+
+# 其他
+*.md
+Makefile
+pytest.ini
