@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from infra.repo.gcp.gcp_auth import (
+    GCP_DEFAULT_SCOPES,
     GcpAuthMode,
     create_gcs_filesystem,
     create_subscriber_client,
@@ -63,7 +64,7 @@ class TestCreateGcpClients:
             service_account_key_file=str(key),
         )
 
-        mock_from_file.assert_called_once_with(str(key))
+        mock_from_file.assert_called_once_with(str(key), scopes=GCP_DEFAULT_SCOPES)
         mock_fs.assert_called_once_with(token="creds")
 
     def test_adc_subscriber_client(self, mocker):
@@ -87,7 +88,7 @@ class TestCreateGcpClients:
             service_account_key_file=str(key),
         )
 
-        mock_from_file.assert_called_once_with(str(key))
+        mock_from_file.assert_called_once_with(str(key), scopes=GCP_DEFAULT_SCOPES)
         mock_client.assert_called_once_with(credentials="creds")
 
 
@@ -95,7 +96,7 @@ class TestRefreshGcpAccessToken:
     def test_adc_refreshes_default_credentials(self, mocker):
         creds = MagicMock()
         creds.token = "adc-token"
-        mocker.patch(
+        mock_default = mocker.patch(
             "infra.repo.gcp.gcp_auth.google_auth_default",
             return_value=(creds, "project"),
         )
@@ -105,3 +106,4 @@ class TestRefreshGcpAccessToken:
 
         assert token == "adc-token"
         creds.refresh.assert_called_once_with(mock_request.return_value)
+        mock_default.assert_called_once_with(scopes=GCP_DEFAULT_SCOPES)

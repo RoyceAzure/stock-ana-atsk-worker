@@ -1,0 +1,18 @@
+1. 確認 Pod 狀態：
+
+  kubectl get pods -l app=task-worker -n {{ .Release.Namespace }}
+
+2. 查看日誌：
+
+  kubectl logs -f deployment/{{ include "task-worker.fullname" . }} -n {{ .Release.Namespace }}
+
+3. PostgreSQL 連線位址（cluster 內）：
+
+  {{ include "task-worker.pgHost" . }}:{{ .Values.postgres.port }}
+
+4. GCP 憑證模式：{{ .Values.gcp.authMode }}
+{{- if include "task-worker.useGcpSaJson" . }}
+   SA JSON 掛載：{{ .Values.gcp.serviceAccount.keyFilePath }}
+{{- else }}
+   使用 ADC（GKE 請確認 Workload Identity 已綁定）
+{{- end }}

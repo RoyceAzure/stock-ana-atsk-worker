@@ -15,6 +15,7 @@ from google.oauth2 import service_account
 logger = logging.getLogger(__name__)
 
 _VALID_AUTH_MODES = frozenset({"adc", "service_account_json"})
+GCP_DEFAULT_SCOPES = ("https://www.googleapis.com/auth/cloud-platform",)
 
 
 class GcpAuthMode(str, Enum):
@@ -78,7 +79,10 @@ def load_gcp_credentials(
     if auth_mode is GcpAuthMode.ADC:
         return None
     key_file = service_account_key_file or resolve_service_account_key_file()
-    return service_account.Credentials.from_service_account_file(key_file)
+    return service_account.Credentials.from_service_account_file(
+        key_file,
+        scopes=GCP_DEFAULT_SCOPES,
+    )
 
 
 def resolve_google_credentials(
@@ -94,7 +98,7 @@ def resolve_google_credentials(
     if credentials is not None:
         return credentials
 
-    credentials, _ = google_auth_default()
+    credentials, _ = google_auth_default(scopes=GCP_DEFAULT_SCOPES)
     return credentials
 
 

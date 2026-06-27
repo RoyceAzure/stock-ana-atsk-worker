@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('namespace', 'ghcr-secret', 'helm-install', 'helm-migrate', 'deploy', 'undeploy', 'pg-port-forward')]
+    [ValidateSet('namespace', 'ghcr-secret', 'gcp-sa-secret', 'helm-install', 'helm-migrate', 'helm-install-worker', 'deploy', 'deploy-all', 'undeploy', 'undeploy-keep-pg', 'undeploy-apps', 'pg-port-forward')]
     [string]$Action
 )
 
@@ -10,6 +10,7 @@ $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot '../..')
 $EnvFile = Join-Path $ProjectRoot '.env'
 $ChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/postgres'
 $MigrateChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/db-migrate'
+$WorkerChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/task-worker'
 $MigrationsSrc = Join-Path $ProjectRoot 'deployment/db/migrations'
 
 function Load-DotEnv {
@@ -36,6 +37,13 @@ function Require-EnvVar {
 Load-DotEnv -Path $EnvFile
 
 $GhcrSecretName = if ($env:GHCR_SECRET_NAME) { $env:GHCR_SECRET_NAME } else { 'ghcr-secret' }
+$GcpSaSecretName = if ($env:GCP_SA_SECRET_NAME) { $env:GCP_SA_SECRET_NAME } else { 'gcp-sa-key' }
+$GcpSaKeyPath = if ($env:GCP_SA_KEY_FILE) { $env:GCP_SA_KEY_FILE } else { 'deployment/secrets/gcp-sa.json' }
+
+function Write-Info {
+    param([string]$Message)
+    Write-Host ('[INFO] ' + $Message)
+}
 
 function Add-HelmSetFromEnv {
     param(
@@ -49,7 +57,7 @@ function Add-HelmSetFromEnv {
     }
     $Target.Add('--set')
     $Target.Add("${HelmKey}=$value")
-    Write-Host "[INFO] Helm ${HelmKey} from .env (${EnvName})"
+    Write-Info ('Helm ' + $HelmKey + ' from .env (' + $EnvName + ')')
 }
 
 function Get-PostgresHelmSetArgs {
@@ -64,6 +72,26 @@ function Get-MigrateHelmSetArgs {
     $sets = [System.Collections.Generic.List[string]]::new()
     Add-HelmSetFromEnv -Target $sets -EnvName 'PG_DATABASE' -HelmKey 'postgres.database'
     Add-HelmSetFromEnv -Target $sets -EnvName 'PG_USER' -HelmKey 'postgres.username'
+    return $sets
+}
+
+function Get-WorkerHelmSetArgs {
+    $sets = [System.Collections.Generic.List[string]]::new()
+    Add-HelmSetFromEnv -Target $sets -EnvName 'PG_DATABASE' -HelmKey 'postgres.database'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'PG_USER' -HelmKey 'postgres.username'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'WORKER_TASK_TYPES' -HelmKey 'worker.taskTypes'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'LOG_LEVEL' -HelmKey 'worker.logLevel'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'GCP_PROJECT_ID' -HelmKey 'gcp.projectId'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'GCP_TASK_SUBSCRIPTION_ID' -HelmKey 'gcp.taskSubscriptionId'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'GCP_AUTH_MODE' -HelmKey 'gcp.authMode'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'OBJECT_STORAGE_BUCKET_BASE_PATH' -HelmKey 'gcp.objectStorageBucketBasePath'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'DUCKDB_POOL_SIZE' -HelmKey 'worker.duckdbPoolSize'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'PG_POOL_MIN_CONN' -HelmKey 'worker.pgPoolMinConn'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'PG_POOL_MAX_CONN' -HelmKey 'worker.pgPoolMaxConn'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'PUBSUB_BATCH_SIZE' -HelmKey 'worker.pubsubBatchSize'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'PUBSUB_VISIBILITY_TIMEOUT' -HelmKey 'worker.pubsubVisibilityTimeout'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'PUBSUB_PULL_TIMEOUT' -HelmKey 'worker.pubsubPullTimeout'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'SHUTDOWN_DRAIN_TIMEOUT' -HelmKey 'worker.shutdownDrainTimeout'
     return $sets
 }
 
@@ -82,6 +110,24 @@ function Ensure-GhcrSecret {
         --docker-password=$env:GITHUB_PAT `
         --namespace=$env:K8S_NAMESPACE `
         --dry-run=client -o yaml | kubectl apply -f -
+}
+
+function Ensure-GcpSaSecret {
+    Require-EnvVar 'K8S_NAMESPACE'
+    $authMode = if ($env:GCP_AUTH_MODE) { $env:GCP_AUTH_MODE.Trim().ToLower() } else { 'adc' }
+    if ($authMode -ne 'service_account_json') {
+        Write-Info ('GCP_AUTH_MODE=' + $authMode + '; skipping gcp-sa-key Secret')
+        return
+    }
+    $keyFile = Join-Path $ProjectRoot $GcpSaKeyPath
+    if (-not (Test-Path $keyFile)) {
+        throw ('GCP SA key not found at ' + $keyFile + '; use deployment/secrets/gcp-sa.json or set GCP_SA_KEY_FILE')
+    }
+    kubectl create secret generic $GcpSaSecretName `
+        --from-file=key.json=$keyFile `
+        --namespace=$env:K8S_NAMESPACE `
+        --dry-run=client -o yaml | kubectl apply -f -
+    Write-Info ('GCP SA secret ' + $GcpSaSecretName + ' applied')
 }
 
 function Install-Postgres {
@@ -105,6 +151,11 @@ function Install-Postgres {
 function Get-MigrateReleaseName {
     Require-EnvVar 'K8S_RELEASE_NAME'
     return "$($env:K8S_RELEASE_NAME)-migrate"
+}
+
+function Get-WorkerReleaseName {
+    Require-EnvVar 'K8S_RELEASE_NAME'
+    return "$($env:K8S_RELEASE_NAME)-worker"
 }
 
 function Sync-MigrationFiles {
@@ -150,13 +201,90 @@ function Install-DbMigrate {
     Write-Host "Migration job completed (golang-migrate up is idempotent)."
 }
 
+function Install-TaskWorker {
+    Require-EnvVar 'K8S_RELEASE_NAME'
+    Require-EnvVar 'K8S_NAMESPACE'
+    Require-EnvVar 'GCP_PROJECT_ID'
+    Require-EnvVar 'GCP_TASK_SUBSCRIPTION_ID'
+    Require-EnvVar 'OBJECT_STORAGE_BUCKET_BASE_PATH'
+
+    $workerRelease = Get-WorkerReleaseName
+    $helmArgs = [System.Collections.Generic.List[string]]::new()
+    $helmArgs.Add('upgrade')
+    $helmArgs.Add('--install')
+    $helmArgs.Add($workerRelease)
+    $helmArgs.Add($WorkerChartPath)
+    $helmArgs.Add('--namespace')
+    $helmArgs.Add($env:K8S_NAMESPACE)
+    $helmArgs.Add('--set')
+    $helmArgs.Add("imagePullSecretName=$GhcrSecretName")
+    $helmArgs.Add('--set')
+    $helmArgs.Add("postgres.releaseName=$($env:K8S_RELEASE_NAME)")
+    $helmArgs.Add('--set')
+    $helmArgs.Add("fullnameOverride=$workerRelease")
+    $helmArgs.Add('--set')
+    $helmArgs.Add("gcp.serviceAccount.existingSecretName=$GcpSaSecretName")
+    foreach ($arg in (Get-WorkerHelmSetArgs)) {
+        $helmArgs.Add($arg)
+    }
+    & helm @helmArgs
+    Write-Host "Task worker deployed: $workerRelease"
+}
+
 function Start-PgPortForward {
     Require-EnvVar 'K8S_RELEASE_NAME'
     Require-EnvVar 'K8S_NAMESPACE'
     $localPort = if ($env:PG_LOCAL_PORT) { $env:PG_LOCAL_PORT } else { '5432' }
     $svc = "$($env:K8S_RELEASE_NAME)-postgres"
-    Write-Host "Forwarding localhost:${localPort} -> ${svc}.${env:K8S_NAMESPACE}:5432 (Ctrl+C to stop)"
+    $target = "$svc.$($env:K8S_NAMESPACE):5432"
+    Write-Host "Forwarding localhost:$localPort -> $target (Ctrl+C to stop)"
     kubectl port-forward -n $env:K8S_NAMESPACE "svc/$svc" "${localPort}:5432"
+}
+
+function Invoke-HelmUninstallIfExists {
+    param(
+        [string]$Release,
+        [string]$Namespace
+    )
+    $prevErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = helm uninstall $Release --namespace $Namespace 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Info ('Uninstalled Helm release: ' + $Release)
+            return
+        }
+        if ($output -match 'release: not found') {
+            Write-Info ('Helm release not found, skipped: ' + $Release)
+            return
+        }
+        throw ($output | Out-String)
+    } finally {
+        $ErrorActionPreference = $prevErrorAction
+    }
+}
+
+function Uninstall-WorkerAndMigrate {
+    Require-EnvVar 'K8S_NAMESPACE'
+    $migrateRelease = Get-MigrateReleaseName
+    $workerRelease = Get-WorkerReleaseName
+    Invoke-HelmUninstallIfExists -Release $workerRelease -Namespace $env:K8S_NAMESPACE
+    Invoke-HelmUninstallIfExists -Release $migrateRelease -Namespace $env:K8S_NAMESPACE
+}
+
+function Uninstall-AllKeepPgVolume {
+    Require-EnvVar 'K8S_RELEASE_NAME'
+    Require-EnvVar 'K8S_NAMESPACE'
+    Uninstall-WorkerAndMigrate
+    Invoke-HelmUninstallIfExists -Release $env:K8S_RELEASE_NAME -Namespace $env:K8S_NAMESPACE
+    Write-Info 'PostgreSQL PVC retained (StatefulSet volumeClaimTemplates are not removed by Helm uninstall):'
+    $pvcs = kubectl get pvc -n $env:K8S_NAMESPACE -o name 2>$null | Where-Object { $_ -match 'rj-postgres-data' }
+    if ($pvcs) {
+        $pvcs | ForEach-Object { Write-Host "  $_" }
+    } else {
+        Write-Host '  (no rj-postgres-data PVC in namespace)'
+    }
+    Write-Info 'Redeploy: make k8s-deploy-local or make k8s-deploy-all'
 }
 
 switch ($Action) {
@@ -166,6 +294,10 @@ switch ($Action) {
     'ghcr-secret' {
         Ensure-Namespace
         Ensure-GhcrSecret
+    }
+    'gcp-sa-secret' {
+        Ensure-Namespace
+        Ensure-GcpSaSecret
     }
     'helm-install' {
         Ensure-Namespace
@@ -177,6 +309,13 @@ switch ($Action) {
         Wait-ForPostgres
         Install-DbMigrate
     }
+    'helm-install-worker' {
+        Ensure-Namespace
+        Ensure-GhcrSecret
+        Ensure-GcpSaSecret
+        Wait-ForPostgres
+        Install-TaskWorker
+    }
     'deploy' {
         Ensure-Namespace
         Ensure-GhcrSecret
@@ -186,14 +325,27 @@ switch ($Action) {
         Write-Host "Deployed. Cluster host: $($env:K8S_RELEASE_NAME)-postgres.$($env:K8S_NAMESPACE).svc.cluster.local:5432"
         Write-Host "Local access: make k8s-pg-port-forward  ->  localhost:$($(if ($env:PG_LOCAL_PORT) { $env:PG_LOCAL_PORT } else { '5432' }))"
     }
+    'deploy-all' {
+        Ensure-Namespace
+        Ensure-GhcrSecret
+        Ensure-GcpSaSecret
+        Install-Postgres
+        Wait-ForPostgres
+        Install-DbMigrate
+        Install-TaskWorker
+        Write-Host 'Full stack deployed (postgres + migrate + task-worker).'
+    }
     'pg-port-forward' {
         Start-PgPortForward
     }
     'undeploy' {
-        Require-EnvVar 'K8S_RELEASE_NAME'
-        Require-EnvVar 'K8S_NAMESPACE'
-        $migrateRelease = Get-MigrateReleaseName
-        helm uninstall $migrateRelease --namespace $env:K8S_NAMESPACE 2>$null
-        helm uninstall $env:K8S_RELEASE_NAME --namespace $env:K8S_NAMESPACE
+        Uninstall-AllKeepPgVolume
+    }
+    'undeploy-keep-pg' {
+        Uninstall-AllKeepPgVolume
+    }
+    'undeploy-apps' {
+        Uninstall-WorkerAndMigrate
+        Write-Info 'Postgres still running; PVC unchanged'
     }
 }

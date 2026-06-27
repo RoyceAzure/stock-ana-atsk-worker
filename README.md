@@ -219,6 +219,59 @@ graph LR
 
 ---
 
+## Helm 部署（kind / GKE）
+
+Chart 路徑：`deployment/helm/charts/task-worker`
+
+### 建置映像
+
+```bash
+docker build -f deployment/docker/Dockerfile \
+  -t ghcr.io/royceazure/stock-ana-atsk-worker:dev-latest .
+```
+
+kind 需先將映像載入 cluster：`kind load docker-image ghcr.io/royceazure/stock-ana-atsk-worker:dev-latest --name kind-lab`
+
+### 本機 kind 一鍵部署（Postgres + migrate + worker）
+
+`.env` 填好 `GCP_PROJECT_ID`、`GCP_TASK_SUBSCRIPTION_ID`、`OBJECT_STORAGE_BUCKET_BASE_PATH` 等，並將 SA 金鑰放在 `deployment/secrets/gcp-sa.json`。
+
+```bash
+make kind-init          # 首次
+make k8s-deploy-all     # postgres + db-migrate + task-worker
+```
+
+分步部署：
+
+```bash
+make k8s-deploy-local       # 僅 postgres + migrate
+make helm-install-worker    # 部署 worker（需 postgres 已就緒）
+```
+
+### Helm 手動安裝
+
+```bash
+helm upgrade --install dev-worker deployment/helm/charts/task-worker \
+  --namespace sexy-stock \
+  --set imagePullSecretName=ghcr-secret \
+  --set postgres.releaseName=dev \
+  --set gcp.projectId=your-project \
+  --set gcp.taskSubscriptionId=your-sub \
+  --set gcp.objectStorageBucketBasePath=your-bucket/prefix \
+  --set gcp.authMode=service_account_json \
+  --set gcp.serviceAccount.existingSecretName=gcp-sa-key
+```
+
+GKE 正式環境改 `--set gcp.authMode=adc`，並在 `values.yaml` 設定 `serviceAccount.create=true` 與 Workload Identity 註解。
+
+### 卸載
+
+```bash
+make k8s-undeploy
+```
+
+---
+
 ## 延伸說明
 
 組裝與變數對應細節見 [docs/worker_config_assembly.md](docs/worker_config_assembly.md)。

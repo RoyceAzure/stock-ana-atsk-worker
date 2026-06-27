@@ -1,0 +1,66 @@
+# 映像（對應 deployment/docker/Dockerfile build tag）
+image:
+  repository: ghcr.io/royceazure/stock-ana-atsk-worker
+  tag: dev-latest
+  pullPolicy: IfNotPresent
+
+# 私有 GHCR 映像 pull secret（本地由 k8s-local.ps1 建立，GCP 可留空）
+imagePullSecretName: ""
+
+replicaCount: 1
+
+# 對應 postgres chart 的 release 名稱（同 namespace 內）
+# PG_HOST 自動為 {releaseName}-postgres；密碼取自 {releaseName}-postgres-secret
+postgres:
+  releaseName: dev
+  database: sexy_stock
+  username: postgres
+  port: 5432
+  secretName: ""
+
+worker:
+  mode: consumer
+  taskTypes: preprocessing
+  logLevel: info
+  cloudProvider: gcp
+  storageBackend: gcs
+  duckdbPoolSize: 10
+  pgPoolMinConn: 1
+  pgPoolMaxConn: 10
+  pubsubBatchSize: 10
+  pubsubVisibilityTimeout: 30
+  pubsubPullTimeout: 5.0
+  shutdownDrainTimeout: 30.0
+
+gcp:
+  projectId: ""
+  taskSubscriptionId: ""
+  # adc = GKE Workload Identity；service_account_json = kind / 本機 K8s
+  authMode: service_account_json
+  objectStorageBucketBasePath: ""
+  serviceAccount:
+    # 由 kubectl 或 k8s-local.ps1 建立的 Secret（--from-file=key.json=...）
+    existingSecretName: gcp-sa-key
+    secretKey: key.json
+    mountPath: /var/secrets/google
+    keyFilePath: /var/secrets/google/key.json
+
+serviceAccount:
+  create: false
+  name: ""
+  annotations: {}
+
+resources:
+  limits:
+    cpu: "2"
+    memory: "2Gi"
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+
+# 應大於 shutdownDrainTimeout，預留優雅關閉緩衝
+terminationGracePeriodSeconds: 45
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "task-worker.fullname" . }}
+  labels:
+    {{- include "task-worker.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "task-worker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "task-worker.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecretName }}
+      {{- end }}
+      serviceAccountName: {{ include "task-worker.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: task-worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "main.py", "--mode", {{ .Values.worker.mode | quote }}]
+          env:
+            - name: WORKER_MODE
+              value: {{ .Values.worker.mode | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.worker.logLevel | quote }}
+            - name: CLOUD_PROVIDER
+              value: {{ .Values.worker.cloudProvider | quote }}
+            - name: WORKER_TASK_TYPES
+              value: {{ .Values.worker.taskTypes | quote }}
+            - name: STORAGE_BACKEND
+              value: {{ .Values.worker.storageBackend | quote }}
+            - name: DUCKDB_POOL_SIZE
+              value: {{ .Values.worker.duckdbPoolSize | quote }}
+            - name: PG_POOL_MIN_CONN
+              value: {{ .Values.worker.pgPoolMinConn | quote }}
+            - name: PG_POOL_MAX_CONN
+              value: {{ .Values.worker.pgPoolMaxConn | quote }}
+            - name: PUBSUB_BATCH_SIZE
+              value: {{ .Values.worker.pubsubBatchSize | quote }}
+            - name: PUBSUB_VISIBILITY_TIMEOUT
+              value: {{ .Values.worker.pubsubVisibilityTimeout | quote }}
+            - name: PUBSUB_PULL_TIMEOUT
+              value: {{ .Values.worker.pubsubPullTimeout | quote }}
+            - name: SHUTDOWN_DRAIN_TIMEOUT
+              value: {{ .Values.worker.shutdownDrainTimeout | quote }}
+            - name: PG_HOST
+              value: {{ include "task-worker.pgHost" . | quote }}
+            - name: PG_PORT
+              value: {{ .Values.postgres.port | quote }}
+            - name: PG_DATABASE
+              value: {{ .Values.postgres.database | quote }}
+            - name: PG_USER
+              value: {{ .Values.postgres.username | quote }}
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "task-worker.pgSecretName" . }}
+                  key: postgres-password
+            - name: GCP_PROJECT_ID
+              value: {{ required "gcp.projectId is required" .Values.gcp.projectId | quote }}
+            - name: GCP_TASK_SUBSCRIPTION_ID
+              value: {{ required "gcp.taskSubscriptionId is required" .Values.gcp.taskSubscriptionId | quote }}
+            - name: GCP_AUTH_MODE
+              value: {{ .Values.gcp.authMode | quote }}
+            - name: OBJECT_STORAGE_BUCKET_BASE_PATH
+              value: {{ required "gcp.objectStorageBucketBasePath is required" .Values.gcp.objectStorageBucketBasePath | quote }}
+            {{- if eq (.Values.gcp.authMode | lower) "service_account_json" }}
+            - name: GCP_SA_KEY_FILE
+              value: {{ .Values.gcp.serviceAccount.keyFilePath | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if eq (.Values.gcp.authMode | lower) "service_account_json" }}
+          volumeMounts:
+            - name: gcp-sa-key
+              mountPath: {{ .Values.gcp.serviceAccount.mountPath }}
+              readOnly: true
+          {{- end }}
+      {{- if eq (.Values.gcp.authMode | lower) "service_account_json" }}
+      volumes:
+        - name: gcp-sa-key
+          secret:
+            secretName: {{ required "gcp.serviceAccount.existingSecretName is required when authMode=service_account_json" .Values.gcp.serviceAccount.existingSecretName }}
+            items:
+              - key: {{ .Values.gcp.serviceAccount.secretKey }}
+                path: {{ .Values.gcp.serviceAccount.secretKey }}
+      {{- end }}
