@@ -51,6 +51,8 @@ def _build_gcp_assembly(config: WorkerConfig) -> CloudWorkerAssembly:
         visibility_timeout=gcp.pubsub_visibility_timeout,
         pull_timeout=gcp.pubsub_pull_timeout,
         shutdown_drain_timeout=config.shutdown_drain_timeout,
+        auth_mode=gcp.pubsub_auth_mode,
+        service_account_key_file=gcp.pubsub_service_account_key_file,
     )
 
     return CloudWorkerAssembly(
