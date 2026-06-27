@@ -1,0 +1,40 @@
+image:
+  repository: grafana/promtail
+  tag: "3.0.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecretName: ""
+
+# Loki push endpoint（部署 Loki 後請對齊實際 Service）
+loki:
+  url: http://loki.sexy-stock.svc.cluster.local:3100/loki/api/v1/push
+
+# 僅收集指定 namespace；留空表示全 cluster
+scrapeNamespaces:
+  - sexy-stock
+
+# 額外靜態 Loki labels（低基數）
+extraLabels:
+  cluster: kind-lab
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+# JSON pipeline：對齊 core/logger/logger.py 的 JsonFormatter 欄位
+# 輸出欄位：timestamp, level, name, message, app, task_event_id(optional)
+pipeline:
+  jsonApps:
+    - task-worker
+  # 提升為 Loki label 的欄位（避免高基數欄位如 task_event_id）
+  labelFields:
+    - level
+    - app
+
+tolerations:
+  - effect: NoSchedule
+    operator: Exists

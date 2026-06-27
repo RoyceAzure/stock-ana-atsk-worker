@@ -1,0 +1,19 @@
+Promtail DaemonSet installed.
+
+1. 確認每個 node 都有 Pod：
+
+  kubectl get pods -l app=promtail -n {{ .Release.Namespace }} -o wide
+
+2. 查看設定：
+
+  kubectl get configmap {{ include "promtail.fullname" . }}-config -n {{ .Release.Namespace }} -o yaml
+
+3. Loki push URL：
+
+  {{ .Values.loki.url }}
+
+4. 目前 JSON pipeline 套用於 app：
+
+  {{ include "promtail.jsonAppSelector" . }}
+
+注意：Loki 尚未部署時，Promtail 會持續 retry push；可先部署 Promtail，待 Loki 就緒後即會開始寫入。

@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('namespace', 'ghcr-secret', 'gcp-sa-secret', 'helm-install', 'helm-migrate', 'helm-install-worker', 'deploy', 'deploy-all', 'undeploy', 'undeploy-keep-pg', 'undeploy-apps', 'pg-port-forward')]
+    [ValidateSet('namespace', 'ghcr-secret', 'gcp-sa-secret', 'helm-install', 'helm-migrate', 'helm-install-worker', 'helm-install-promtail', 'deploy', 'deploy-all', 'undeploy', 'undeploy-keep-pg', 'undeploy-apps', 'pg-port-forward')]
     [string]$Action
 )
 
@@ -11,6 +11,7 @@ $EnvFile = Join-Path $ProjectRoot '.env'
 $ChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/postgres'
 $MigrateChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/db-migrate'
 $WorkerChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/task-worker'
+$PromtailChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/promtail'
 $MigrationsSrc = Join-Path $ProjectRoot 'deployment/db/migrations'
 
 function Load-DotEnv {
@@ -95,6 +96,13 @@ function Get-WorkerHelmSetArgs {
     return $sets
 }
 
+function Get-PromtailHelmSetArgs {
+    $sets = [System.Collections.Generic.List[string]]::new()
+    Add-HelmSetFromEnv -Target $sets -EnvName 'K8S_NAMESPACE' -HelmKey 'scrapeNamespaces[0]'
+    Add-HelmSetFromEnv -Target $sets -EnvName 'LOKI_PUSH_URL' -HelmKey 'loki.url'
+    return $sets
+}
+
 function Ensure-Namespace {
     Require-EnvVar 'K8S_NAMESPACE'
     kubectl create namespace $env:K8S_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
@@ -156,6 +164,11 @@ function Get-MigrateReleaseName {
 function Get-WorkerReleaseName {
     Require-EnvVar 'K8S_RELEASE_NAME'
     return "$($env:K8S_RELEASE_NAME)-worker"
+}
+
+function Get-PromtailReleaseName {
+    Require-EnvVar 'K8S_RELEASE_NAME'
+    return "$($env:K8S_RELEASE_NAME)-promtail"
 }
 
 function Sync-MigrationFiles {
@@ -231,6 +244,27 @@ function Install-TaskWorker {
     Write-Host "Task worker deployed: $workerRelease"
 }
 
+function Install-Promtail {
+    Require-EnvVar 'K8S_NAMESPACE'
+    $promtailRelease = Get-PromtailReleaseName
+    $helmArgs = [System.Collections.Generic.List[string]]::new()
+    $helmArgs.Add('upgrade')
+    $helmArgs.Add('--install')
+    $helmArgs.Add($promtailRelease)
+    $helmArgs.Add($PromtailChartPath)
+    $helmArgs.Add('--namespace')
+    $helmArgs.Add($env:K8S_NAMESPACE)
+    $helmArgs.Add('--set')
+    $helmArgs.Add("imagePullSecretName=$GhcrSecretName")
+    $helmArgs.Add('--set')
+    $helmArgs.Add("fullnameOverride=$promtailRelease")
+    foreach ($arg in (Get-PromtailHelmSetArgs)) {
+        $helmArgs.Add($arg)
+    }
+    & helm @helmArgs
+    Write-Host "Promtail deployed: $promtailRelease (DaemonSet)"
+}
+
 function Start-PgPortForward {
     Require-EnvVar 'K8S_RELEASE_NAME'
     Require-EnvVar 'K8S_NAMESPACE'
@@ -276,6 +310,7 @@ function Uninstall-AllKeepPgVolume {
     Require-EnvVar 'K8S_RELEASE_NAME'
     Require-EnvVar 'K8S_NAMESPACE'
     Uninstall-WorkerAndMigrate
+    Invoke-HelmUninstallIfExists -Release (Get-PromtailReleaseName) -Namespace $env:K8S_NAMESPACE
     Invoke-HelmUninstallIfExists -Release $env:K8S_RELEASE_NAME -Namespace $env:K8S_NAMESPACE
     Write-Info 'PostgreSQL PVC retained (StatefulSet volumeClaimTemplates are not removed by Helm uninstall):'
     $pvcs = kubectl get pvc -n $env:K8S_NAMESPACE -o name 2>$null | Where-Object { $_ -match 'rj-postgres-data' }
@@ -315,6 +350,10 @@ switch ($Action) {
         Ensure-GcpSaSecret
         Wait-ForPostgres
         Install-TaskWorker
+    }
+    'helm-install-promtail' {
+        Ensure-Namespace
+        Install-Promtail
     }
     'deploy' {
         Ensure-Namespace

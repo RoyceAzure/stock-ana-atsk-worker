@@ -15,9 +15,10 @@ KIND_CLUSTER_NAME ?= kind-lab
 HELM_CHART_POSTGRES := ./deployment/helm/charts/postgres
 HELM_CHART_DB_MIGRATE := ./deployment/helm/charts/db-migrate
 HELM_CHART_TASK_WORKER := ./deployment/helm/charts/task-worker
+HELM_CHART_PROMTAIL := ./deployment/helm/charts/promtail
 K8S_SCRIPT := powershell -NoProfile -ExecutionPolicy Bypass -File .\deployment\scripts\k8s-local.ps1
 
-.PHONY: run db-backup db-restore docker-build kind-load-image kind-init limit-workers k8s-namespace k8s-ghcr-secret k8s-gcp-sa-secret helm-install-postgres helm-migrate helm-install-worker k8s-deploy-local k8s-deploy-all k8s-pg-port-forward k8s-undeploy k8s-undeploy-keep-pg k8s-undeploy-apps
+.PHONY: run db-backup db-restore docker-build kind-load-image kind-init limit-workers k8s-namespace k8s-ghcr-secret k8s-gcp-sa-secret helm-install-postgres helm-migrate helm-install-worker helm-install-promtail k8s-deploy-local k8s-deploy-all k8s-pg-port-forward k8s-undeploy k8s-undeploy-keep-pg k8s-undeploy-apps
 
 # 本機啟動 worker（讀取 .env / 環境變數）
 run:
@@ -62,6 +63,9 @@ helm-migrate:
 
 helm-install-worker:
 	$(K8S_SCRIPT) -Action helm-install-worker
+
+helm-install-promtail:
+	$(K8S_SCRIPT) -Action helm-install-promtail
 
 k8s-deploy-local:
 	$(K8S_SCRIPT) -Action deploy
