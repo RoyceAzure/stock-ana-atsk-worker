@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
 import duckdb
 
-from core.config.config import Config
 from infra.repo.duckdb.config import DuckDBStorageConfig
+from infra.repo.gcp.gcp_auth import (
+    GcpAuthMode,
+    gcp_auth_mode_from_env,
+    gcp_service_account_key_file_from_env,
+    refresh_gcp_access_token,
+)
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_SECRET_NAME = "object_storage_config"
 _DEFAULT_URI_SCHEME = "gs"
@@ -16,54 +24,44 @@ def _sql_literal(value: str) -> str:
     return value.replace("'", "''")
 
 
-def _config_value(config: Config, key: str, default: Optional[str] = None) -> Optional[str]:
-    try:
-        value = getattr(config, key)
-    except AttributeError:
-        return default
-    if value is None or value == "":
-        return default
-    return str(value)
-
-
 @dataclass
 class GcsDuckDBConfig(DuckDBStorageConfig):
-    """GCS 連線：httpfs TYPE gcs + HMAC 金鑰（方案 A）。"""
+    """GCS 連線：httpfs TYPE gcs + ADC / SA JSON bearer token。"""
 
-    hmac_access_key: str
-    hmac_secret_key: str
+    auth_mode: GcpAuthMode = GcpAuthMode.ADC
+    service_account_key_file: Optional[str] = None
     secret_name: str = _DEFAULT_SECRET_NAME
     uri_scheme: str = _DEFAULT_URI_SCHEME
 
-    def __post_init__(self) -> None:
-        if not self.hmac_access_key or not self.hmac_secret_key:
-            raise ValueError(
-                "GcsDuckDBConfig 需設定 GCS HMAC access key 與 secret key"
-            )
-
     @classmethod
     def from_env(cls) -> "GcsDuckDBConfig":
-        config = Config()
-        access_key = _config_value(config, "GCS_HMAC_ACCESS_KEY")
-        secret_key = _config_value(config, "GCS_HMAC_SECRET_KEY")
-        if not access_key or not secret_key:
-            raise ValueError(
-                "GCS DuckDB 連線需設定環境變數 GCS_HMAC_ACCESS_KEY 與 GCS_HMAC_SECRET_KEY"
-            )
-        return cls(hmac_access_key=access_key, hmac_secret_key=secret_key)
+        return cls(
+            auth_mode=gcp_auth_mode_from_env(),
+            service_account_key_file=gcp_service_account_key_file_from_env(),
+        )
 
     def setup_connection(self, con: duckdb.DuckDBPyConnection) -> None:
         con.execute("INSTALL httpfs; LOAD httpfs;")
         con.execute(self.build_secret_sql())
+        if self.auth_mode is GcpAuthMode.ADC:
+            logger.info("[DuckDB GCS] 憑證模式: ADC（Workload Identity / 預設應用程式憑證）")
+        else:
+            logger.info(
+                "[DuckDB GCS] 憑證模式: service_account_json (%s)",
+                self.service_account_key_file,
+            )
 
     def build_secret_sql(self) -> str:
-        key_id = _sql_literal(self.hmac_access_key)
-        secret = _sql_literal(self.hmac_secret_key)
+        token = _sql_literal(
+            refresh_gcp_access_token(
+                auth_mode=self.auth_mode,
+                service_account_key_file=self.service_account_key_file,
+            )
+        )
         return f"""
             CREATE OR REPLACE SECRET {self.secret_name} (
-                TYPE gcs,
-                KEY_ID '{key_id}',
-                SECRET '{secret}'
+                TYPE GCS,
+                BEARER_TOKEN '{token}'
             );
         """
 

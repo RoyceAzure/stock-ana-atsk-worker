@@ -1,7 +1,8 @@
-"""DuckDB GCS CRUD 整合測試（httpfs TYPE gcs + HMAC）。
+"""DuckDB GCS CRUD 整合測試（httpfs TYPE gcs + ADC / SA JSON）。
 
 前置條件（.env 或環境變數）：
-- GCS_HMAC_ACCESS_KEY / GCS_HMAC_SECRET_KEY
+- GCP_AUTH_MODE=adc 或 service_account_json
+- service_account_json 時：GCP_SA_KEY_FILE 或 GOOGLE_APPLICATION_CREDENTIALS
 - GCS_TEST_BUCKET（可選，預設見 conftest）
 """
 

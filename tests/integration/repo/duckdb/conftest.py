@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Generator, List
 
 import duckdb
+import google.auth
 import pytest
 from dotenv import load_dotenv
 
@@ -15,12 +16,8 @@ from infra.repo.object_storage import ObjectStorageConfig, create_filesystem, to
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]
 load_dotenv(_PROJECT_ROOT / ".env", override=False)
 
-# --- DuckDB GCS 整合測試參數（環境變數或 .env 可覆蓋）---
-# 憑證：GCS_HMAC_ACCESS_KEY / GCS_HMAC_SECRET_KEY（非 gcloud auth，需於 GCP 建立 HMAC 金鑰）
 GCS_TEST_BUCKET = "sexy_stock_test"
 GCS_TEST_PREFIX = "test/duckdb"
-GCS_HMAC_ACCESS_KEY = ""
-GCS_HMAC_SECRET_KEY = ""
 
 
 def gcs_test_bucket() -> str:
@@ -32,30 +29,11 @@ def gcs_test_prefix() -> str:
 
 
 def build_gcs_duckdb_config() -> GcsDuckDBConfig:
-    access_key = os.getenv("GCS_HMAC_ACCESS_KEY", GCS_HMAC_ACCESS_KEY) or None
-    secret_key = os.getenv("GCS_HMAC_SECRET_KEY", GCS_HMAC_SECRET_KEY) or None
-    if not access_key or not secret_key:
-        raise ValueError("GCS HMAC 模式需設定 GCS_HMAC_ACCESS_KEY 與 GCS_HMAC_SECRET_KEY")
-    return GcsDuckDBConfig(hmac_access_key=access_key, hmac_secret_key=secret_key)
+    return GcsDuckDBConfig.from_env()
 
 
 def build_gcs_storage_config() -> ObjectStorageConfig:
-    """fsspec / merger 用設定（ADC 或 SA JSON）。"""
     return ObjectStorageConfig.from_env()
-
-
-def _ensure_gcs_fsspec_credentials() -> None:
-    if gcp_auth_mode_from_env() is GcpAuthMode.SERVICE_ACCOUNT_JSON:
-        resolve_service_account_key_file()
-        return
-    try:
-        import google.auth
-
-        google.auth.default()
-    except Exception as exc:
-        msg = f"DuckDB GCS fsspec 測試需 ADC 或 GCP_SA_KEY_FILE: {exc}"
-        print(f"[duckdb-gcs] {msg}")
-        pytest.skip(msg)
 
 
 def new_test_path_prefix() -> str:
@@ -66,15 +44,19 @@ def track_gcs_path(created_paths: List[str], rel_path: str) -> None:
     created_paths.append(rel_path)
 
 
-def _ensure_gcs_hmac_credentials() -> None:
-    access_key = os.getenv("GCS_HMAC_ACCESS_KEY", GCS_HMAC_ACCESS_KEY)
-    secret_key = os.getenv("GCS_HMAC_SECRET_KEY", GCS_HMAC_SECRET_KEY)
-    if not access_key or not secret_key:
-        msg = "DuckDB GCS 測試需設定 GCS_HMAC_ACCESS_KEY 與 GCS_HMAC_SECRET_KEY"
+def _ensure_gcs_credentials() -> None:
+    if gcp_auth_mode_from_env() is GcpAuthMode.SERVICE_ACCOUNT_JSON:
+        resolve_service_account_key_file()
+        return
+    try:
+        google.auth.default()
+    except Exception as exc:
+        msg = (
+            "DuckDB GCS 整合測試需 ADC（gcloud auth application-default login）"
+            f"或 GCP_SA_KEY_FILE: {exc}"
+        )
         print(f"[duckdb-gcs] {msg}")
         pytest.skip(msg)
-
-    print("[duckdb-gcs] HMAC 金鑰已設定")
 
 
 @pytest.fixture(scope="module")
@@ -84,7 +66,7 @@ def gcs_duckdb_config() -> GcsDuckDBConfig:
         print(f"[duckdb-gcs] {msg}")
         pytest.skip(msg)
 
-    _ensure_gcs_hmac_credentials()
+    _ensure_gcs_credentials()
     return build_gcs_duckdb_config()
 
 
@@ -95,8 +77,7 @@ def gcs_storage_config() -> ObjectStorageConfig:
         print(f"[duckdb-gcs] {msg}")
         pytest.skip(msg)
 
-    _ensure_gcs_hmac_credentials()
-    _ensure_gcs_fsspec_credentials()
+    _ensure_gcs_credentials()
     return build_gcs_storage_config()
 
 

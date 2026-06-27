@@ -6,6 +6,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
+from google.auth import credentials as google_credentials
+from google.auth import default as google_auth_default
+from google.auth.transport import requests as google_auth_requests
 from google.cloud import pubsub_v1
 from google.oauth2 import service_account
 
@@ -76,6 +79,40 @@ def load_gcp_credentials(
         return None
     key_file = service_account_key_file or resolve_service_account_key_file()
     return service_account.Credentials.from_service_account_file(key_file)
+
+
+def resolve_google_credentials(
+    *,
+    auth_mode: GcpAuthMode = GcpAuthMode.ADC,
+    service_account_key_file: Optional[str] = None,
+) -> google_credentials.Credentials:
+    """取得可 refresh 的 Google Credentials（ADC 或 SA JSON）。"""
+    credentials = load_gcp_credentials(
+        auth_mode=auth_mode,
+        service_account_key_file=service_account_key_file,
+    )
+    if credentials is not None:
+        return credentials
+
+    credentials, _ = google_auth_default()
+    return credentials
+
+
+def refresh_gcp_access_token(
+    *,
+    auth_mode: GcpAuthMode = GcpAuthMode.ADC,
+    service_account_key_file: Optional[str] = None,
+) -> str:
+    """取得 GCP OAuth2 access token（DuckDB GCS bearer secret 用）。"""
+    credentials = resolve_google_credentials(
+        auth_mode=auth_mode,
+        service_account_key_file=service_account_key_file,
+    )
+    credentials.refresh(google_auth_requests.Request())
+    token = credentials.token
+    if not token:
+        raise ValueError("無法取得 GCP access token")
+    return token
 
 
 def create_subscriber_client(

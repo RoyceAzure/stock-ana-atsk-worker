@@ -1,4 +1,5 @@
 import json
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -6,6 +7,7 @@ from infra.repo.gcp.gcp_auth import (
     GcpAuthMode,
     create_gcs_filesystem,
     create_subscriber_client,
+    refresh_gcp_access_token,
     resolve_gcp_auth_mode,
     resolve_service_account_key_file,
 )
@@ -87,3 +89,19 @@ class TestCreateGcpClients:
 
         mock_from_file.assert_called_once_with(str(key))
         mock_client.assert_called_once_with(credentials="creds")
+
+
+class TestRefreshGcpAccessToken:
+    def test_adc_refreshes_default_credentials(self, mocker):
+        creds = MagicMock()
+        creds.token = "adc-token"
+        mocker.patch(
+            "infra.repo.gcp.gcp_auth.google_auth_default",
+            return_value=(creds, "project"),
+        )
+        mock_request = mocker.patch("infra.repo.gcp.gcp_auth.google_auth_requests.Request")
+
+        token = refresh_gcp_access_token(auth_mode=GcpAuthMode.ADC)
+
+        assert token == "adc-token"
+        creds.refresh.assert_called_once_with(mock_request.return_value)

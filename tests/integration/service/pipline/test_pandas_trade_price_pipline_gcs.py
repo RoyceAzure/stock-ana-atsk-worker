@@ -1,7 +1,7 @@
 """pandas trade_price pipeline 整合測試：mock SQLLoader，實際寫入 GCS parquet。
 
 前置條件（.env 或環境變數）：
-- GCS_HMAC_ACCESS_KEY / GCS_HMAC_SECRET_KEY
+- GCP_AUTH_MODE=adc 或 service_account_json
 - GCS_TEST_BUCKET（可選，預設見 tests/integration/repo/duckdb/conftest.py）
 """
 
