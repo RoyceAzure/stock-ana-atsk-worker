@@ -35,9 +35,18 @@ python main.py --mode consumer
 |---|---|
 | `GCP_PROJECT_ID` | GCP 專案 ID |
 | `GCP_TASK_SUBSCRIPTION_ID` | Pub/Sub 訂閱名稱（此 Pod 監聽的 queue） |
-| `OBJECT_STORAGE_BUCKET_BASE_PATH` | GCS 寫入路徑，格式 `bucket名稱/前綴` |
-| `GCS_HMAC_ACCESS_KEY` | GCS HMAC 金鑰（DuckDB 讀寫 GCS 必填） |
-| `GCS_HMAC_SECRET_KEY` | GCS HMAC 密鑰 |
+| `OBJECT_STORAGE_BUCKET_BASE_PATH` | GCS 路徑；若 bucket 在根目錄則填 `bucket名稱`，有前綴則 `bucket/前綴` |
+
+### GCP 憑證（Pub/Sub、gcsfs merger、DuckDB GCS 共用）
+
+| 變數 | 預設 | 說明 |
+|---|---|---|
+| `GCP_AUTH_MODE` | `adc` | `adc`：Workload Identity / gcloud ADC；`service_account_json`：SA JSON 金鑰檔 |
+| `GCP_SA_KEY_FILE` | — | `service_account_json` 時 JSON 路徑（優先於下方變數） |
+| `GOOGLE_APPLICATION_CREDENTIALS` | — | `service_account_json` 時 JSON 路徑（備用） |
+| `GCP_PUBSUB_AUTH_MODE` | — | 已棄用別名，請改用 `GCP_AUTH_MODE` |
+
+同一個 worker 通常對應 **一個 GCP Service Account**；本機 / kind 測試時一份 JSON 即可驅動 Pub/Sub、GCS merger、DuckDB 寫入。
 
 ### 建議設定
 
@@ -65,24 +74,24 @@ python main.py --mode consumer
 | `PUBSUB_VISIBILITY_TIMEOUT` | `30` | 訊息 ack 期限（秒），逾時會重派 |
 | `PUBSUB_PULL_TIMEOUT` | `5.0` | 無訊息時 pull 等待時間（秒） |
 | `SHUTDOWN_DRAIN_TIMEOUT` | `30.0` | 關閉時等待進行中任務完成的秒數 |
-| `GCS_USE_ADC` | `false` | `true` 時 fsspec/gcsfs 使用 GCP 預設憑證（DuckDB 仍須 HMAC） |
 
 ---
 
 ## 快速範例（`.env`）
 
+### 本機開發（gcloud ADC）
+
 ```env
 WORKER_MODE=consumer
 CLOUD_PROVIDER=gcp
 WORKER_TASK_TYPES=preprocessing
+GCP_AUTH_MODE=adc
 
 GCP_PROJECT_ID=my-project
 GCP_TASK_SUBSCRIPTION_ID=preprocess-sub
 
 STORAGE_BACKEND=gcs
-OBJECT_STORAGE_BUCKET_BASE_PATH=my-bucket/data
-GCS_HMAC_ACCESS_KEY=your-access-key
-GCS_HMAC_SECRET_KEY=your-secret-key
+OBJECT_STORAGE_BUCKET_BASE_PATH=my-bucket
 
 PG_HOST=localhost
 PG_DATABASE=sexy_stock
@@ -91,81 +100,104 @@ PG_PASSWORD=your-password
 PG_PORT=5432
 ```
 
----
+啟動前先執行：`gcloud auth application-default login`
 
-## GKE 部署與 GCP 權限
+### kind / 本機 K8s（SA JSON）
 
-### `gcp_consumer.py` 需要改嗎？
-
-**不需要。** 目前這行：
-
-```python
-self.subscriber = pubsub_v1.SubscriberClient()
+```env
+GCP_AUTH_MODE=service_account_json
+GCP_SA_KEY_FILE=/var/secrets/google/key.json
+# 其餘變數同上
 ```
 
-會自動走 Google 的 **Application Default Credentials（ADC）** 憑證鏈，這是官方建議寫法。
+---
 
-| 環境 | ADC 來源 | 你要做的事 |
-|---|---|---|
-| 本機開發 | `gcloud auth application-default login` 產生的憑證檔 | 登入一次即可 |
-| GKE | **Workload Identity**（Pod 透過 metadata 取得 GSA 身分） | 綁定 K8s SA ↔ GCP SA，**不要**掛 JSON 金鑰 |
+## GCP 憑證與 IAM 權限
 
-本機與 GKE 都是「ADC」，差別只在憑證**從哪裡來**，程式碼不用分兩套。
+Worker 的 **Pub/Sub、gcsfs（merger）、DuckDB GCS** 皆透過 `GCP_AUTH_MODE` 使用同一套 GCP 身分（ADC 或 SA JSON），**不再需要 HMAC 金鑰**。
 
-> 不建議在 GKE 設定 `GOOGLE_APPLICATION_CREDENTIALS` 掛 service account JSON 檔（金鑰外洩風險、輪替麻煩）。請用 Workload Identity。
+### 建議：一個應用一個 Service Account
 
-### GKE 建議權限設定
-
-**1. 建立 GCP Service Account（GSA）**
-
-例如 `stock-ana-task-worker@<PROJECT_ID>.iam.gserviceaccount.com`，授予：
-
-| 用途 | IAM 角色（可再縮小範圍） |
+| 項目 | 建議 |
 |---|---|
-| Pub/Sub 拉取 / ack | `roles/pubsub.subscriber` |
-| GCS 讀寫（fsspec，`GCS_USE_ADC=true` 時） | `roles/storage.objectAdmin` 或自訂更細權限 |
+| GSA 名稱 | 例如 `stock-ana-task-worker@<PROJECT_ID>.iam.gserviceaccount.com` |
+| 對應關係 | 1 個 worker deployment ↔ 1 個 GSA ↔ 1 組 IAM |
+| 本機 / kind | 下載該 GSA 的 JSON 金鑰，掛進 Secret，設 `GCP_SA_KEY_FILE` |
+| GKE 正式 | 使用 Workload Identity，**不要**掛 JSON 金鑰 |
 
-**2. 啟用 GKE Workload Identity 並綁定**
+### IAM 角色（授予上述 GSA）
+
+可依最小權限縮小到特定 subscription / bucket：
+
+| 用途 | IAM 角色 | 建議綁定層級 |
+|---|---|---|
+| Pub/Sub pull / ack | `roles/pubsub.subscriber` | Subscription（如 `task-preprocessing`） |
+| GCS 讀寫（merger、parquet） | `roles/storage.objectAdmin` | Bucket（如 `sexy_stock_test`） |
+
+範例（請替換專案、訂閱、bucket）：
 
 ```bash
-# K8s ServiceAccount 綁定 GSA
+GSA=stock-ana-task-worker@<PROJECT_ID>.iam.gserviceaccount.com
+
+gcloud pubsub subscriptions add-iam-policy-binding task-preprocessing \
+  --member="serviceAccount:${GSA}" \
+  --role="roles/pubsub.subscriber"
+
+gcloud storage buckets add-iam-policy-binding gs://sexy_stock_test \
+  --member="serviceAccount:${GSA}" \
+  --role="roles/storage.objectAdmin"
+```
+
+### 本機開發
+
+| 模式 | 設定 | 說明 |
+|---|---|---|
+| ADC（建議） | `GCP_AUTH_MODE=adc` | 執行 `gcloud auth application-default login` |
+| SA JSON | `GCP_AUTH_MODE=service_account_json` + `GCP_SA_KEY_FILE` | 與 GKE 使用同一 GSA 的 JSON 亦可 |
+
+### GKE（Workload Identity）
+
+**1. 建立 GSA 並授予上方 IAM 角色**
+
+**2. 建立 K8s ServiceAccount 並綁定 GSA**
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: stock-ana-task-worker
+  namespace: sexy-stock
+  annotations:
+    iam.gke.io/gcp-service-account: stock-ana-task-worker@<PROJECT_ID>.iam.gserviceaccount.com
+```
+
+```bash
 gcloud iam service-accounts add-iam-policy-binding \
   stock-ana-task-worker@<PROJECT_ID>.iam.gserviceaccount.com \
   --role roles/iam.workloadIdentityUser \
-  --member "serviceAccount:<PROJECT_ID>.svc.id.goog[<NAMESPACE>/<KSA_NAME>]"
+  --member "serviceAccount:<PROJECT_ID>.svc.id.goog[sexy-stock/stock-ana-task-worker]"
 ```
 
-Deployment 指定：
+**3. Deployment**
 
 ```yaml
 spec:
   template:
     spec:
-      serviceAccountName: stock-ana-task-worker   # K8s SA（含 workload identity 註解）
+      serviceAccountName: stock-ana-task-worker
+      containers:
+        - env:
+            - name: GCP_AUTH_MODE
+              value: "adc"
+            # 不要設 GOOGLE_APPLICATION_CREDENTIALS
 ```
-
-K8s ServiceAccount 註解範例：
-
-```yaml
-metadata:
-  annotations:
-    iam.gke.io/gcp-service-account: stock-ana-task-worker@<PROJECT_ID>.iam.gserviceaccount.com
-```
-
-**3. GKE 環境變數建議**
-
-| 變數 | GKE 建議 |
-|---|---|
-| `GCS_USE_ADC` | `true`（gcsfs 走 GSA IAM，免 HMAC 給 fsspec） |
-| `GCS_HMAC_*` | **仍需要**（DuckDB httpfs 目前走 HMAC，與 Pub/Sub 憑證無關） |
-| `GOOGLE_APPLICATION_CREDENTIALS` | **不要設**（Workload Identity 自動處理） |
 
 ### 憑證與模組對照
 
 ```mermaid
 graph LR
-    subgraph Local["本機"]
-        ADC1[gcloud ADC 檔案]
+    subgraph Local["本機 / kind"]
+        ADC1[gcloud ADC 或 SA JSON]
     end
     subgraph GKE["GKE Pod"]
         WI[Workload Identity]
@@ -173,11 +205,15 @@ graph LR
         WI --> ADC2
     end
 
-    ADC1 --> PS[Pub/Sub SubscriberClient]
+    ADC1 --> PS[Pub/Sub]
     ADC2 --> PS
-    ADC2 --> GCSFS[gcsfs GCS_USE_ADC=true]
-    HMAC[GCS_HMAC_*] --> DuckDB[DuckDB httpfs]
+    ADC1 --> GCSFS[gcsfs merger]
+    ADC2 --> GCSFS
+    ADC1 --> DuckDB[DuckDB GCS bearer]
+    ADC2 --> DuckDB
 ```
+
+> GKE 上請勿掛載 GSA JSON 檔；kind 因無 Workload Identity，使用 `service_account_json` + Secret 為正常做法。
 
 ---
 
