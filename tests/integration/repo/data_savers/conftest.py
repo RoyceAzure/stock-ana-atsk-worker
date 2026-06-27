@@ -1,8 +1,10 @@
 from typing import Generator, List
 
+import google.auth
 import pytest
 
 from infra.repo.data_savers.object_storage_saver import ObjectStorageSaver
+from infra.repo.gcp.gcp_auth import GcpAuthMode, gcp_auth_mode_from_env, resolve_service_account_key_file
 from infra.repo.object_storage import ObjectStorageConfig, to_fs_uri
 from tests.integration.repo.data_savers.gcs_settings import (
     build_gcs_storage_config,
@@ -12,16 +14,27 @@ from tests.integration.repo.data_savers.gcs_settings import (
 )
 
 
+def _ensure_gcs_fsspec_credentials() -> None:
+    if gcp_auth_mode_from_env() is GcpAuthMode.SERVICE_ACCOUNT_JSON:
+        resolve_service_account_key_file()
+        return
+    try:
+        google.auth.default()
+    except Exception as exc:
+        pytest.skip(
+            f"GCS 整合測試需 ADC（gcloud auth application-default login）"
+            f"或 GCP_SA_KEY_FILE: {exc}"
+        )
+
+
 @pytest.fixture(scope="module")
 def gcs_storage_config() -> ObjectStorageConfig:
     if not gcs_test_bucket():
         pytest.skip(
             "請設定 GCS_TEST_BUCKET（tests/integration/repo/data_savers/gcs_settings.py 或環境變數）"
         )
-    config = build_gcs_storage_config()
-    if not config.use_adc and (not config.access_key or not config.secret_key):
-        pytest.skip("GCS HMAC 模式需設定 GCS_HMAC_ACCESS_KEY 與 GCS_HMAC_SECRET_KEY")
-    return config
+    _ensure_gcs_fsspec_credentials()
+    return build_gcs_storage_config()
 
 
 @pytest.fixture

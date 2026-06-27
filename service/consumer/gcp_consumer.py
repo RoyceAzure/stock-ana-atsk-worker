@@ -11,7 +11,7 @@ from google.cloud import pubsub_v1
 from pydantic import BaseModel, Field, ValidationError
 
 from core.life_cycle.lifecycle import shutdown_event
-from infra.repo.gcp.pubsub_auth import PubSubAuthMode, create_subscriber_client
+from infra.repo.gcp.gcp_auth import GcpAuthMode, create_subscriber_client
 from models.task_event import EventStage, TaskEvent, TaskEventStatus
 from models.task_message import TaskMessage
 from service.task.task_coordinator import ITaskCoordinator
@@ -45,8 +45,8 @@ class PubSubConsumerConfig(BaseModel):
         ge=0.0,
         description="關閉時等待進行中任務完成的逾時秒數",
     )
-    auth_mode: PubSubAuthMode = Field(
-        default=PubSubAuthMode.ADC,
+    auth_mode: GcpAuthMode = Field(
+        default=GcpAuthMode.ADC,
         description="adc=Workload Identity / ADC；service_account_json=SA JSON 金鑰檔",
     )
     service_account_key_file: Optional[str] = Field(

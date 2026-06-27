@@ -45,10 +45,6 @@ class WorkerConfig:
         gcp: GcpWorkerProfile | None = None
         if cloud_provider is CloudProvider.GCP:
             gcp = GcpWorkerProfile.from_env()
-        elif cloud_provider is CloudProvider.AWS:
-            raise NotImplementedError(
-                "AWS worker（SQS + S3）尚未實作，請設定 CLOUD_PROVIDER=gcp"
-            )
 
         task = TaskWorkerProfile.from_env()
 

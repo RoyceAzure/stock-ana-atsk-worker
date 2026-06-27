@@ -24,15 +24,12 @@ class CloudWorkerAssembly:
 def build_cloud_worker_assembly(config: WorkerConfig) -> CloudWorkerAssembly:
     """依雲端廠商組裝 consumer 與儲存層所需設定。"""
 
-    if config.cloud_provider is CloudProvider.GCP:
-        return _build_gcp_assembly(config)
-
-    if config.cloud_provider is CloudProvider.AWS:
-        raise NotImplementedError(
-            "AWS worker（SQS + S3）尚未實作，請設定 CLOUD_PROVIDER=gcp"
+    if config.cloud_provider is not CloudProvider.GCP:
+        raise ValueError(
+            f"目前僅支援 CLOUD_PROVIDER=gcp，收到: {config.cloud_provider.value}"
         )
 
-    raise ValueError(f"不支援的 CLOUD_PROVIDER: {config.cloud_provider.value}")
+    return _build_gcp_assembly(config)
 
 
 def _build_gcp_assembly(config: WorkerConfig) -> CloudWorkerAssembly:

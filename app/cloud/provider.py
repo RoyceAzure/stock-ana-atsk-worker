@@ -4,7 +4,6 @@ from enum import Enum
 
 
 class CloudProvider(str, Enum):
-    """雲端廠商：決定 queue consumer 與物件儲存模組組裝路徑。"""
+    """雲端廠商：目前僅實作 GCP（Pub/Sub + GCS）。"""
 
     GCP = "gcp"
-    AWS = "aws"

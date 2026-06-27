@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 
 from infra.repo.duckdb.gcs_config import GcsDuckDBConfig
 from infra.repo.duckdb_manager import DuckDBManager
-from infra.repo.object_storage import ObjectStorageConfig, StorageBackend, create_filesystem, to_fs_uri
+from infra.repo.gcp.gcp_auth import GcpAuthMode, gcp_auth_mode_from_env, resolve_service_account_key_file
+from infra.repo.object_storage import ObjectStorageConfig, create_filesystem, to_fs_uri
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]
 load_dotenv(_PROJECT_ROOT / ".env", override=False)
@@ -39,13 +40,22 @@ def build_gcs_duckdb_config() -> GcsDuckDBConfig:
 
 
 def build_gcs_storage_config() -> ObjectStorageConfig:
-    """fsspec 用設定（HMAC + S3 互通）。"""
-    return ObjectStorageConfig(
-        backend=StorageBackend.GCS,
-        use_adc=False,
-        access_key=os.getenv("GCS_HMAC_ACCESS_KEY", GCS_HMAC_ACCESS_KEY) or None,
-        secret_key=os.getenv("GCS_HMAC_SECRET_KEY", GCS_HMAC_SECRET_KEY) or None,
-    )
+    """fsspec / merger 用設定（ADC 或 SA JSON）。"""
+    return ObjectStorageConfig.from_env()
+
+
+def _ensure_gcs_fsspec_credentials() -> None:
+    if gcp_auth_mode_from_env() is GcpAuthMode.SERVICE_ACCOUNT_JSON:
+        resolve_service_account_key_file()
+        return
+    try:
+        import google.auth
+
+        google.auth.default()
+    except Exception as exc:
+        msg = f"DuckDB GCS fsspec 測試需 ADC 或 GCP_SA_KEY_FILE: {exc}"
+        print(f"[duckdb-gcs] {msg}")
+        pytest.skip(msg)
 
 
 def new_test_path_prefix() -> str:
@@ -86,6 +96,7 @@ def gcs_storage_config() -> ObjectStorageConfig:
         pytest.skip(msg)
 
     _ensure_gcs_hmac_credentials()
+    _ensure_gcs_fsspec_credentials()
     return build_gcs_storage_config()
 
 

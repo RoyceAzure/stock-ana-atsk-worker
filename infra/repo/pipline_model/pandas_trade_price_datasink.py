@@ -5,12 +5,7 @@ import duckdb
 import pandas as pd
 
 from core.file_lock.file_lock_manager import FileLocker
-from infra.repo.object_storage import (
-    StorageBackend,
-    create_filesystem,
-    to_duckdb_httpfs_uri,
-    to_duckdb_uri,
-)
+from infra.repo.object_storage import to_duckdb_httpfs_uri
 from models.pipline_model.pandas_trade_price_schema import validate_pandas_trade_price_output
 from models.pipline_model.pipline_params import SinkParams
 from infra.repo.pipline_model.data_sink import IDataSink
@@ -53,7 +48,6 @@ class PandasTradePriceObjectStorageParquetSink(IDataSink[pd.DataFrame]):
 
         bucket = self.parms.path
         groups = df[required_cols].drop_duplicates()
-        fs = create_filesystem(storage_config)
         with self.duckdb_conn.cursor() as con:
             try:
                 for _, row in groups.iterrows():
@@ -85,20 +79,13 @@ class PandasTradePriceObjectStorageParquetSink(IDataSink[pd.DataFrame]):
                             f"(FORMAT PARQUET, CODEC 'SNAPPY')"
                         )
                         con.unregister("_sink_df")
-                        if storage_config.backend is StorageBackend.GCS:
-                            success_path = to_duckdb_httpfs_uri(
-                                storage_config, bucket, success_key
-                            )
-                            con.execute(
-                                f"COPY (SELECT 1) TO '{success_path}' "
-                                f"(FORMAT CSV, HEADER false)"
-                            )
-                        else:
-                            success_path = to_duckdb_uri(
-                                storage_config, f"{bucket}/{success_key}"
-                            )
-                            with fs.open(success_path, "wb"):
-                                pass
+                        success_path = to_duckdb_httpfs_uri(
+                            storage_config, bucket, success_key
+                        )
+                        con.execute(
+                            f"COPY (SELECT 1) TO '{success_path}' "
+                            f"(FORMAT CSV, HEADER false)"
+                        )
                     logger.info(
                         f"save data to {storage_config.backend.value} success: "
                         f"{code}, {candle}, {start_date}, {end_date}"
@@ -126,5 +113,3 @@ class PandasTradePriceObjectStorageParquetSink(IDataSink[pd.DataFrame]):
         except Exception as e:
             return None, str(e)
 
-
-PandasTradePriceMinioParquetSink = PandasTradePriceObjectStorageParquetSink

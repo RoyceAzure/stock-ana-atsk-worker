@@ -8,26 +8,17 @@ from infra.repo.pipline_model.pandas_trade_price_datasink import (
 from models.pipline_model.pipline_params import SinkLocationType, SinkParams
 
 
-def _storage_backend_to_sink_location(backend: StorageBackend) -> SinkLocationType:
-    mapping = {
-        StorageBackend.GCS: SinkLocationType.GCS,
-        StorageBackend.S3: SinkLocationType.S3,
-        StorageBackend.MINIO: SinkLocationType.MINIO,
-    }
-    try:
-        return mapping[backend]
-    except KeyError as exc:
-        raise ValueError(f"Unsupported storage backend for trade price sink: {backend}") from exc
-
-
 def create_trade_price_parquet_sink(
     bucket_base_path: str,
     storage_config: ObjectStorageConfig,
     duckdb_conn: duckdb.DuckDBPyConnection,
 ) -> PandasTradePriceObjectStorageParquetSink:
     """於 app 組裝階段建立 trade_price parquet sink。"""
+    if storage_config.backend is not StorageBackend.GCS:
+        raise ValueError(f"trade price sink 目前僅支援 GCS，收到: {storage_config.backend}")
+
     sink_params = SinkParams(
-        location=_storage_backend_to_sink_location(storage_config.backend),
+        location=SinkLocationType.GCS,
         path=strip_uri_scheme(bucket_base_path),
         storage_config=storage_config,
     )

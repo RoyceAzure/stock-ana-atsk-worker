@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.env import env_int, env_str
-from infra.repo.gcp.pubsub_auth import (
-    PubSubAuthMode,
-    pubsub_auth_mode_from_env,
-    pubsub_service_account_key_file_from_env,
+from infra.repo.gcp.gcp_auth import (
+    GcpAuthMode,
+    gcp_auth_mode_from_env,
+    gcp_service_account_key_file_from_env,
 )
 
 
@@ -20,7 +20,7 @@ class GcpWorkerProfile:
     pubsub_batch_size: int = 10
     pubsub_visibility_timeout: int = 30
     pubsub_pull_timeout: float = 5.0
-    pubsub_auth_mode: PubSubAuthMode = PubSubAuthMode.ADC
+    pubsub_auth_mode: GcpAuthMode = GcpAuthMode.ADC
     pubsub_service_account_key_file: str | None = None
 
     @classmethod
@@ -39,6 +39,6 @@ class GcpWorkerProfile:
             pubsub_batch_size=env_int("PUBSUB_BATCH_SIZE", 10),
             pubsub_visibility_timeout=env_int("PUBSUB_VISIBILITY_TIMEOUT", 30),
             pubsub_pull_timeout=float(env_str("PUBSUB_PULL_TIMEOUT", "5.0")),
-            pubsub_auth_mode=pubsub_auth_mode_from_env(),
-            pubsub_service_account_key_file=pubsub_service_account_key_file_from_env(),
+            pubsub_auth_mode=gcp_auth_mode_from_env(),
+            pubsub_service_account_key_file=gcp_service_account_key_file_from_env(),
         )

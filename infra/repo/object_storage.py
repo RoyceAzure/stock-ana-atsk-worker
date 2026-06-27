@@ -4,21 +4,23 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional, Tuple
 
-from core.config.config import Config
+from infra.repo.gcp.gcp_auth import (
+    GcpAuthMode,
+    create_gcs_filesystem,
+    gcp_auth_mode_from_env,
+    gcp_service_account_key_file_from_env,
+)
 
 
 class StorageBackend(str, Enum):
-    S3 = "s3"
-    MINIO = "minio"
     GCS = "gcs"
 
 
-_URI_PREFIXES: Tuple[str, ...] = ("s3://", "gs://", "gcs://")
+_URI_PREFIXES: Tuple[str, ...] = ("gs://", "gcs://", "s3://")
 
 
 def object_uri(config: ObjectStorageConfig, bucket: str, key: str = "") -> str:
-    scheme = config.effective_uri_scheme
-    base = f"{scheme}://{bucket.strip('/')}"
+    base = f"gs://{bucket.strip('/')}"
     if not key:
         return base
     return f"{base}/{key.lstrip('/')}"
@@ -33,20 +35,14 @@ def strip_uri_scheme(path: str) -> str:
 
 def to_duckdb_uri(config: ObjectStorageConfig, path: str) -> str:
     normalized = strip_uri_scheme(path)
-    return f"{config.effective_uri_scheme}://{normalized}"
+    return f"gs://{normalized}"
 
 
 def to_duckdb_httpfs_uri(config: ObjectStorageConfig, bucket: str, key: str = "") -> str:
-    """DuckDB httpfs COPY/READ 用的 URI（GCS 使用 gs:// + TYPE gcs secret）。"""
-    if config.backend is StorageBackend.GCS and config.access_key and config.secret_key:
-        from infra.repo.duckdb.gcs_config import GcsDuckDBConfig
+    """DuckDB httpfs COPY/READ 用的 URI（gs:// + TYPE gcs HMAC secret）。"""
+    from infra.repo.duckdb.gcs_config import GcsDuckDBConfig
 
-        duck_cfg = GcsDuckDBConfig(
-            hmac_access_key=config.access_key,
-            hmac_secret_key=config.secret_key,
-        )
-        return duck_cfg.object_uri(bucket, key)
-    return object_uri(config, bucket, key)
+    return GcsDuckDBConfig.from_env().object_uri(bucket, key)
 
 
 to_fs_uri = to_duckdb_uri
@@ -62,110 +58,34 @@ def split_object_path(full_path: str) -> Tuple[str, str]:
 
 @dataclass
 class ObjectStorageConfig:
-    backend: StorageBackend = StorageBackend.S3
-    access_key: Optional[str] = None
-    secret_key: Optional[str] = None
-    region: Optional[str] = None
-    host: Optional[str] = None
-    port: Optional[int] = None
-    use_adc: bool = False
+    backend: StorageBackend = StorageBackend.GCS
+    auth_mode: GcpAuthMode = GcpAuthMode.ADC
+    service_account_key_file: Optional[str] = None
 
     @property
     def effective_uri_scheme(self) -> str:
-        if self.backend is StorageBackend.GCS and self.use_adc:
-            return "gs"
-        return "s3"
-
-    @property
-    def uses_gcs_s3_interop(self) -> bool:
-        return (
-            self.backend is StorageBackend.GCS
-            and not self.use_adc
-            and bool(self.access_key)
-            and bool(self.secret_key)
-        )
+        return "gs"
 
     @classmethod
-    def from_env(cls, backend: StorageBackend) -> "ObjectStorageConfig":
-        config = Config()
-        if backend is StorageBackend.MINIO:
-            return cls(
-                backend=backend,
-                access_key=_config_value(config, "MINIO_ROOT_USER"),
-                secret_key=_config_value(config, "MINIO_ROOT_PASSWORD"),
-                region=_config_value(config, "AWS_REGION", "us-east-1"),
-                host=_config_value(config, "MINIO_HOST"),
-                port=int(_config_value(config, "MINIO_PORT", "9000")),
-            )
-        if backend is StorageBackend.S3:
-            return cls(
-                backend=backend,
-                access_key=_config_value(config, "AWS_ACCESS_KEY_ID"),
-                secret_key=_config_value(config, "AWS_SECRET_ACCESS_KEY"),
-                region=_config_value(config, "AWS_REGION", "us-east-1"),
-            )
-        if backend is StorageBackend.GCS:
-            return cls(
-                backend=backend,
-                access_key=_config_value(config, "GCS_HMAC_ACCESS_KEY"),
-                secret_key=_config_value(config, "GCS_HMAC_SECRET_KEY"),
-                use_adc=_truthy(_config_value(config, "GCS_USE_ADC", "false")),
-            )
-        raise ValueError(f"Unsupported storage backend: {backend}")
+    def from_env(cls, backend: StorageBackend = StorageBackend.GCS) -> ObjectStorageConfig:
+        if backend is not StorageBackend.GCS:
+            raise ValueError(f"目前僅支援 GCS 物件儲存，收到: {backend.value}")
+        return cls(
+            backend=StorageBackend.GCS,
+            auth_mode=gcp_auth_mode_from_env(),
+            service_account_key_file=gcp_service_account_key_file_from_env(),
+        )
 
     def object_uri(self, bucket: str, key: str = "") -> str:
         return object_uri(self, bucket, key)
 
 
-def _config_value(config: Config, key: str, default: Optional[str] = None) -> Optional[str]:
-    try:
-        value = getattr(config, key)
-    except AttributeError:
-        return default
-    if value is None or value == "":
-        return default
-    return str(value)
-
-
-def _truthy(value: Optional[str]) -> bool:
-    return str(value).lower() in {"1", "true", "yes", "on"}
-
-
 def create_filesystem(config: ObjectStorageConfig) -> Any:
-    if config.backend is StorageBackend.GCS and config.use_adc:
-        import gcsfs
-
-        return gcsfs.GCSFileSystem()
-
-    import s3fs
-
-    client_kwargs: dict[str, Any] = {}
-    if config.region:
-        client_kwargs["region_name"] = config.region
-
-    if config.uses_gcs_s3_interop:
-        client_kwargs["endpoint_url"] = "https://storage.googleapis.com"
-        return s3fs.S3FileSystem(
-            key=config.access_key,
-            secret=config.secret_key,
-            client_kwargs=client_kwargs,
-        )
-
-    if config.backend is StorageBackend.MINIO:
-        use_ssl = _truthy(_config_value(Config(), "MINIO_SECURE", "true"))
-        scheme = "https" if use_ssl else "http"
-        client_kwargs["endpoint_url"] = f"{scheme}://{config.host}:{config.port}"
-        return s3fs.S3FileSystem(
-            key=config.access_key,
-            secret=config.secret_key,
-            client_kwargs=client_kwargs,
-            use_ssl=use_ssl,
-        )
-
-    return s3fs.S3FileSystem(
-        key=config.access_key,
-        secret=config.secret_key,
-        client_kwargs=client_kwargs or None,
+    if config.backend is not StorageBackend.GCS:
+        raise ValueError(f"目前僅支援 GCS 物件儲存，收到: {config.backend.value}")
+    return create_gcs_filesystem(
+        auth_mode=config.auth_mode,
+        service_account_key_file=config.service_account_key_file,
     )
 
 
@@ -192,12 +112,8 @@ def create_parquet_helper(bucket_base_path: str, storage_config: ObjectStorageCo
 
 
 def location_to_backend(location: str) -> StorageBackend:
-    mapping = {
-        "minio": StorageBackend.MINIO,
-        "s3": StorageBackend.S3,
-        "gcs": StorageBackend.GCS,
-    }
-    try:
-        return mapping[location.lower()]
-    except KeyError as exc:
-        raise ValueError(f"Unsupported object storage location: {location}") from exc
+    if location.lower() != StorageBackend.GCS.value:
+        raise ValueError(
+            f"目前僅支援 GCS 物件儲存，收到 location: {location!r}"
+        )
+    return StorageBackend.GCS
