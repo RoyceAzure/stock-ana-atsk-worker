@@ -104,10 +104,12 @@ PG_PORT=5432
 
 ### kind / 本機 K8s（SA JSON）
 
+金鑰請放在 `deployment/secrets/gcp-sa.json`（勿 commit，見 `deployment/secrets/README.md`）。
+
 ```env
 GCP_AUTH_MODE=service_account_json
-GCP_SA_KEY_FILE=/var/secrets/google/key.json
-# 其餘變數同上
+GCP_SA_KEY_FILE=deployment/secrets/gcp-sa.json   # 本機 python main.py
+# kind Pod 內：GCP_SA_KEY_FILE=/var/secrets/google/key.json
 ```
 
 ---

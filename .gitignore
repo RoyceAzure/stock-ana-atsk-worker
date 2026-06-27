@@ -80,6 +80,11 @@ ipython_config.py
 # Environments
 .env
 .venv
+
+# GCP Service Account keys（本機 / kind 用，勿提交）
+deployment/secrets/*
+!deployment/secrets/README.md
+deployment/*.json
 env/
 venv/
 ENV/
