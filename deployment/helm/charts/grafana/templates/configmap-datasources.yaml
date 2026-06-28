@@ -9,6 +9,7 @@ data:
     apiVersion: 1
     datasources:
       - name: Loki
+        uid: loki
         type: loki
         access: proxy
         url: {{ include "grafana.lokiUrl" . }}
@@ -17,3 +18,17 @@ data:
         jsonData:
           maxLines: 1000
           derivedFields: []
+  {{- if .Values.prometheus.enabled }}
+  prometheus.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: {{ include "grafana.prometheusUrl" . }}
+        isDefault: false
+        editable: true
+        jsonData:
+          timeInterval: 15s
+  {{- end }}

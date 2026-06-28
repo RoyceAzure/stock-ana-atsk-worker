@@ -32,3 +32,19 @@ app: grafana
 {{- define "grafana.lokiUrl" -}}
 http://{{ .Values.loki.serviceName }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.loki.port }}
 {{- end }}
+
+{{- define "grafana.dashboardNamespace" -}}
+{{- default .Release.Namespace .Values.dashboards.defaultNamespace -}}
+{{- end }}
+
+{{- define "grafana.workerPodRegex" -}}
+{{- if .Values.dashboards.worker.podRegex -}}
+{{- .Values.dashboards.worker.podRegex -}}
+{{- else -}}
+.*-worker-.*
+{{- end -}}
+{{- end }}
+
+{{- define "grafana.prometheusUrl" -}}
+http://{{ .Values.prometheus.serviceName }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.prometheus.port }}
+{{- end }}

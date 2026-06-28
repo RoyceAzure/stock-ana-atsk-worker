@@ -1,0 +1,20 @@
+{{- if .Values.nodeExporter.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "metrics.nodeExporter.fullname" . }}
+  labels:
+    {{- include "metrics.nodeExporter.labels" . | nindent 4 }}
+  annotations:
+    prometheus.io/scrape: "true"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: metrics
+      port: {{ .Values.nodeExporter.service.port }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "metrics.nodeExporter.selectorLabels" . | nindent 4 }}
+{{- end }}

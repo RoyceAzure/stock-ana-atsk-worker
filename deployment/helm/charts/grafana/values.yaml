@@ -21,6 +21,24 @@ loki:
   serviceName: loki
   port: 3100
 
+# 對齊 metrics chart 的 prometheus.fullnameOverride=prometheus
+# 未裝 metrics release 時可設 enabled: false
+prometheus:
+  enabled: true
+  serviceName: prometheus
+  port: 9090
+
+# 預設 metrics dashboard（需 prometheus.enabled=true）
+dashboards:
+  enabled: true
+  # 留空則使用 release namespace
+  defaultNamespace: ""
+  # Backtest Worker dashboard（PromQL 監控 task-worker Pod）
+  worker:
+    enabled: true
+    # 留空則預設 .*-worker-.*；建議設為 {K8S_RELEASE_NAME}-worker.*
+    podRegex: ""
+
 resources:
   limits:
     cpu: 300m

@@ -1,0 +1,17 @@
+{{- if .Values.kubeStateMetrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "metrics.kubeStateMetrics.fullname" . }}
+  labels:
+    {{- include "metrics.kubeStateMetrics.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http-metrics
+      port: {{ .Values.kubeStateMetrics.service.port }}
+      targetPort: http-metrics
+      protocol: TCP
+  selector:
+    {{- include "metrics.kubeStateMetrics.selectorLabels" . | nindent 4 }}
+{{- end }}

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: metrics
+description: Prometheus metrics stack (Prometheus, node-exporter, kube-state-metrics)
+type: application
+version: 0.1.0
+appVersion: "1.0"

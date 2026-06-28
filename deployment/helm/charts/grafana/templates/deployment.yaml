@@ -16,6 +16,9 @@ spec:
       annotations:
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
         checksum/datasources: {{ include (print $.Template.BasePath "/configmap-datasources.yaml") . | sha256sum }}
+        {{- if and .Values.prometheus.enabled .Values.dashboards.enabled }}
+        checksum/dashboards: {{ include (print $.Template.BasePath "/configmap-dashboards.yaml") . | sha256sum }}
+        {{- end }}
     spec:
       {{- if .Values.imagePullSecretName }}
       imagePullSecrets:
@@ -60,11 +63,43 @@ spec:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
               readOnly: true
+            {{- if and .Values.prometheus.enabled .Values.dashboards.enabled }}
+            - name: dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+              readOnly: true
+            - name: dashboards-kubernetes
+              mountPath: /var/lib/grafana/dashboards/kubernetes
+              readOnly: true
+            {{- if .Values.dashboards.worker.enabled }}
+            - name: dashboards-backtest
+              mountPath: /var/lib/grafana/dashboards/backtest
+              readOnly: true
+            {{- end }}
+            {{- end }}
             - name: storage
               mountPath: /var/lib/grafana
       volumes:
         - name: datasources
           configMap:
             name: {{ include "grafana.fullname" . }}-datasources
+        {{- if and .Values.prometheus.enabled .Values.dashboards.enabled }}
+        - name: dashboards-provider
+          configMap:
+            name: {{ include "grafana.fullname" . }}-dashboards-provider
+        - name: dashboards-kubernetes
+          configMap:
+            name: {{ include "grafana.fullname" . }}-dashboards
+            items:
+              - key: k8s-overview.json
+                path: k8s-overview.json
+        {{- if .Values.dashboards.worker.enabled }}
+        - name: dashboards-backtest
+          configMap:
+            name: {{ include "grafana.fullname" . }}-dashboards
+            items:
+              - key: backtest-worker.json
+                path: backtest-worker.json
+        {{- end }}
+        {{- end }}
         - name: storage
           emptyDir: {}

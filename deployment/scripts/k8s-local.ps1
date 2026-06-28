@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('namespace', 'ghcr-secret', 'gcp-sa-secret', 'helm-install', 'helm-migrate', 'helm-install-worker', 'helm-install-loki', 'helm-install-promtail', 'helm-install-grafana', 'helm-install-logging', 'deploy', 'deploy-all', 'undeploy', 'undeploy-keep-pg', 'undeploy-apps', 'pg-port-forward', 'grafana-port-forward')]
+    [ValidateSet('namespace', 'ghcr-secret', 'gcp-sa-secret', 'helm-install', 'helm-migrate', 'helm-install-worker', 'helm-install-loki', 'helm-install-promtail', 'helm-install-grafana', 'helm-install-metrics', 'helm-install-logging', 'helm-install-observability', 'deploy', 'deploy-all', 'undeploy', 'undeploy-keep-pg', 'undeploy-apps', 'pg-port-forward', 'grafana-port-forward')]
     [string]$Action
 )
 
@@ -14,6 +14,7 @@ $WorkerChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/task-worker'
 $PromtailChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/promtail'
 $LokiChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/loki'
 $GrafanaChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/grafana'
+$MetricsChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/metrics'
 $MigrationsSrc = Join-Path $ProjectRoot 'deployment/db/migrations'
 
 function Load-DotEnv {
@@ -108,6 +109,32 @@ function Get-PromtailHelmSetArgs {
 function Get-GrafanaHelmSetArgs {
     $sets = [System.Collections.Generic.List[string]]::new()
     Add-HelmSetFromEnv -Target $sets -EnvName 'GRAFANA_ADMIN_PASSWORD' -HelmKey 'admin.password'
+    $releaseName = [Environment]::GetEnvironmentVariable('K8S_RELEASE_NAME', 'Process')
+    if (-not [string]::IsNullOrWhiteSpace($releaseName)) {
+        $sets.Add('--set')
+        $sets.Add("dashboards.worker.podRegex=$releaseName-worker.*")
+        Write-Info ('Helm dashboards.worker.podRegex from .env (K8S_RELEASE_NAME): ' + $releaseName + '-worker.*')
+    }
+    $promDatasource = [Environment]::GetEnvironmentVariable('GRAFANA_PROMETHEUS_DATASOURCE_ENABLED', 'Process')
+    if ($promDatasource -and @('0', 'false', 'no') -contains $promDatasource.Trim().ToLower()) {
+        $sets.Add('--set')
+        $sets.Add('prometheus.enabled=false')
+        $sets.Add('--set')
+        $sets.Add('dashboards.enabled=false')
+        Write-Info 'Helm prometheus.enabled=false from .env (GRAFANA_PROMETHEUS_DATASOURCE_ENABLED)'
+    }
+    return $sets
+}
+
+function Get-MetricsHelmSetArgs {
+    $sets = [System.Collections.Generic.List[string]]::new()
+    Add-HelmSetFromEnv -Target $sets -EnvName 'K8S_NAMESPACE' -HelmKey 'scrapeNamespaces[0]'
+    $spotTolerations = [Environment]::GetEnvironmentVariable('METRICS_NODE_EXPORTER_SPOT_TOLERATIONS', 'Process')
+    if ($spotTolerations -and @('1', 'true', 'yes') -contains $spotTolerations.Trim().ToLower()) {
+        $sets.Add('--set')
+        $sets.Add('nodeExporter.spotTolerations.enabled=true')
+        Write-Info 'Helm nodeExporter.spotTolerations.enabled=true from .env (METRICS_NODE_EXPORTER_SPOT_TOLERATIONS)'
+    }
     return $sets
 }
 
@@ -187,6 +214,11 @@ function Get-LokiReleaseName {
 function Get-GrafanaReleaseName {
     Require-EnvVar 'K8S_RELEASE_NAME'
     return "$($env:K8S_RELEASE_NAME)-grafana"
+}
+
+function Get-MetricsReleaseName {
+    Require-EnvVar 'K8S_RELEASE_NAME'
+    return "$($env:K8S_RELEASE_NAME)-metrics"
 }
 
 function Sync-MigrationFiles {
@@ -310,6 +342,41 @@ function Wait-ForLoki {
     kubectl wait --for=condition=ready pod -l app=loki -n $env:K8S_NAMESPACE --timeout=180s
 }
 
+function Install-Metrics {
+    Require-EnvVar 'K8S_NAMESPACE'
+    $metricsRelease = Get-MetricsReleaseName
+    $helmArgs = [System.Collections.Generic.List[string]]::new()
+    $helmArgs.Add('upgrade')
+    $helmArgs.Add('--install')
+    $helmArgs.Add($metricsRelease)
+    $helmArgs.Add($MetricsChartPath)
+    $helmArgs.Add('--namespace')
+    $helmArgs.Add($env:K8S_NAMESPACE)
+    $helmArgs.Add('--set')
+    $helmArgs.Add("imagePullSecretName=$GhcrSecretName")
+    $helmArgs.Add('--set')
+    $helmArgs.Add('prometheus.fullnameOverride=prometheus')
+    $helmArgs.Add('--set')
+    $helmArgs.Add('nodeExporter.fullnameOverride=node-exporter')
+    $helmArgs.Add('--set')
+    $helmArgs.Add('kubeStateMetrics.fullnameOverride=kube-state-metrics')
+    foreach ($arg in (Get-MetricsHelmSetArgs)) {
+        $helmArgs.Add($arg)
+    }
+    $helmArgs.Add('--wait')
+    $helmArgs.Add('--timeout')
+    $helmArgs.Add('5m')
+    & helm @helmArgs
+    Write-Host ('Metrics deployed: ' + $metricsRelease + ' (Prometheus + node-exporter + kube-state-metrics)')
+    Write-Host ('Prometheus: http://prometheus.' + $env:K8S_NAMESPACE + '.svc.cluster.local:9090')
+}
+
+function Wait-ForMetrics {
+    Require-EnvVar 'K8S_NAMESPACE'
+    Write-Host "Waiting for prometheus pod ready..."
+    kubectl wait --for=condition=ready pod -l app=prometheus -n $env:K8S_NAMESPACE --timeout=180s
+}
+
 function Install-Grafana {
     Require-EnvVar 'K8S_NAMESPACE'
     $grafanaRelease = Get-GrafanaReleaseName
@@ -388,6 +455,7 @@ function Uninstall-AllKeepPgVolume {
     Require-EnvVar 'K8S_NAMESPACE'
     Uninstall-WorkerAndMigrate
     Invoke-HelmUninstallIfExists -Release (Get-GrafanaReleaseName) -Namespace $env:K8S_NAMESPACE
+    Invoke-HelmUninstallIfExists -Release (Get-MetricsReleaseName) -Namespace $env:K8S_NAMESPACE
     Invoke-HelmUninstallIfExists -Release (Get-PromtailReleaseName) -Namespace $env:K8S_NAMESPACE
     Invoke-HelmUninstallIfExists -Release (Get-LokiReleaseName) -Namespace $env:K8S_NAMESPACE
     Invoke-HelmUninstallIfExists -Release $env:K8S_RELEASE_NAME -Namespace $env:K8S_NAMESPACE
@@ -442,6 +510,12 @@ switch ($Action) {
         Ensure-Namespace
         Install-Grafana
     }
+    'helm-install-metrics' {
+        Ensure-Namespace
+        Install-Metrics
+        Wait-ForMetrics
+        Write-Host 'Metrics stack deployed (Prometheus + node-exporter + kube-state-metrics).'
+    }
     'helm-install-logging' {
         Ensure-Namespace
         Install-Loki
@@ -449,6 +523,16 @@ switch ($Action) {
         Install-Promtail
         Install-Grafana
         Write-Host 'Logging stack deployed (Loki + Promtail + Grafana).'
+    }
+    'helm-install-observability' {
+        Ensure-Namespace
+        Install-Loki
+        Wait-ForLoki
+        Install-Promtail
+        Install-Metrics
+        Wait-ForMetrics
+        Install-Grafana
+        Write-Host 'Observability stack deployed (Loki + Promtail + Metrics + Grafana).'
     }
     'deploy' {
         Ensure-Namespace

@@ -1,0 +1,15 @@
+Metrics stack installed (single Helm release).
+
+Components:
+  - Prometheus:     {{ include "metrics.prometheus.fullname" . }}:{{ .Values.prometheus.service.port }}
+  - node-exporter:  DaemonSet ({{ if .Values.nodeExporter.spotTolerations.enabled }}GKE Spot tolerations enabled{{ else }}local/default nodes{{ end }})
+  - kube-state-metrics: {{ include "metrics.kubeStateMetrics.fullname" . }}:{{ .Values.kubeStateMetrics.service.port }}
+
+In-cluster Prometheus URL:
+  http://{{ include "metrics.prometheus.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.prometheus.service.port }}
+
+Verify targets:
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "metrics.prometheus.fullname" . }} 9090:{{ .Values.prometheus.service.port }}
+  open http://localhost:9090/targets
+
+GKE Spot: set nodeExporter.spotTolerations.enabled=true (or .env METRICS_NODE_EXPORTER_SPOT_TOLERATIONS=true).

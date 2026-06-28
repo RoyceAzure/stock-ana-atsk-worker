@@ -1,0 +1,67 @@
+imagePullSecretName: ""
+
+prometheus:
+  # Service 名稱建議固定為 prometheus（後續 Grafana datasource 對齊）
+  fullnameOverride: prometheus
+  image:
+    repository: prom/prometheus
+    tag: v2.53.0
+    pullPolicy: IfNotPresent
+  service:
+    port: 9090
+  retention: 7d
+  scrapeInterval: 15s
+  persistence:
+    enabled: true
+    size: 10Gi
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+
+nodeExporter:
+  enabled: true
+  fullnameOverride: node-exporter
+  image:
+    repository: prom/node-exporter
+    tag: v1.8.2
+    pullPolicy: IfNotPresent
+  service:
+    port: 9100
+  # 本機 kind：無 Spot node，維持空陣列即可
+  tolerations: []
+  # GKE Spot：設 enabled=true（或 .env METRICS_NODE_EXPORTER_SPOT_TOLERATIONS=true）
+  spotTolerations:
+    enabled: false
+  # kind control-plane 不跑 node-exporter（與 promtail 相同策略）
+  excludeControlPlane: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+kubeStateMetrics:
+  enabled: true
+  fullnameOverride: kube-state-metrics
+  image:
+    repository: registry.k8s.io/kube-state-metrics/kube-state-metrics
+    tag: v2.13.0
+    pullPolicy: IfNotPresent
+  service:
+    port: 8080
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# Pod SD 僅 scrape 指定 namespace；留空表示全 cluster
+scrapeNamespaces: []

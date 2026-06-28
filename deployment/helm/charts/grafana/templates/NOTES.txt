@@ -1,22 +1,31 @@
 Grafana installed with Loki datasource.
+{{- if .Values.prometheus.enabled }}
+ Prometheus datasource provisioned.
+{{- if .Values.dashboards.enabled }}
+ Dashboards provisioned via Helm (ConfigMap + Grafana provisioning):
+   - Kubernetes / K8s / Overview
+   {{- if .Values.dashboards.worker.enabled }}
+   - Backtest / Backtest Worker  (pod filter: {{ include "grafana.workerPodRegex" . }})
+   {{- end }}
+{{- end }}
+{{- end }}
 
-1. 本機開啟 UI（另開終端）：
+1. 本機開啟 UI：
 
-  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "grafana.fullname" . }} 3000:{{ .Values.service.port }}
+  make grafana-port-forward
 
-  瀏覽器：http://localhost:3000
+2. 查看 Backtest Worker metrics 圖表：
 
-2. 登入：
+  Dashboards → 資料夾 **Backtest** → **Backtest Worker**
 
-  帳號：{{ .Values.admin.user }}
-  密碼：見 Helm values / Secret {{ include "grafana.fullname" . }}-admin
+  面板含：Pod CPU / Memory / CPU throttling、重啟、OOM、存活時間
 
 3. 查看 log：
 
-  Explore → Loki → 範例 LogQL：
+  Explore → **Loki** → {namespace="{{ include "grafana.dashboardNamespace" . }}", app="task-worker"}
 
-  {namespace="{{ .Release.Namespace }}", app="task-worker"}
+4. 重新部署 dashboard（修改 JSON 後）：
 
-4. Loki URL（已自動設定）：
+  make helm-install-grafana
 
-  {{ include "grafana.lokiUrl" . }}
+  Helm 會更新 ConfigMap；Grafana Pod 因 checksum 自動重啟並載入新 dashboard。

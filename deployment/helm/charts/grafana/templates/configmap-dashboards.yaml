@@ -1,0 +1,45 @@
+{{- if and .Values.prometheus.enabled .Values.dashboards.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "grafana.fullname" . }}-dashboards-provider
+  labels:
+    {{- include "grafana.labels" . | nindent 4 }}
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: kubernetes
+        orgId: 1
+        folder: Kubernetes
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/kubernetes
+      {{- if .Values.dashboards.worker.enabled }}
+      - name: backtest
+        orgId: 1
+        folder: Backtest
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/backtest
+      {{- end }}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "grafana.fullname" . }}-dashboards
+  labels:
+    {{- include "grafana.labels" . | nindent 4 }}
+data:
+  k8s-overview.json: |
+{{- tpl (.Files.Get "dashboards/k8s-overview.json") . | nindent 4 }}
+  {{- if .Values.dashboards.worker.enabled }}
+  backtest-worker.json: |
+{{- tpl (.Files.Get "dashboards/backtest-worker.json") . | nindent 4 }}
+  {{- end }}
+{{- end }}
