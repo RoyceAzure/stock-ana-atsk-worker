@@ -24,6 +24,15 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if .Values.excludeControlPlane }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      {{- end }}
       containers:
         - name: promtail
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

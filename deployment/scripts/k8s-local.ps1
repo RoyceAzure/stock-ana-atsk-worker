@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('namespace', 'ghcr-secret', 'gcp-sa-secret', 'helm-install', 'helm-migrate', 'helm-install-worker', 'helm-install-promtail', 'deploy', 'deploy-all', 'undeploy', 'undeploy-keep-pg', 'undeploy-apps', 'pg-port-forward')]
+    [ValidateSet('namespace', 'ghcr-secret', 'gcp-sa-secret', 'helm-install', 'helm-migrate', 'helm-install-worker', 'helm-install-loki', 'helm-install-promtail', 'helm-install-logging', 'deploy', 'deploy-all', 'undeploy', 'undeploy-keep-pg', 'undeploy-apps', 'pg-port-forward')]
     [string]$Action
 )
 
@@ -12,6 +12,7 @@ $ChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/postgres'
 $MigrateChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/db-migrate'
 $WorkerChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/task-worker'
 $PromtailChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/promtail'
+$LokiChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/loki'
 $MigrationsSrc = Join-Path $ProjectRoot 'deployment/db/migrations'
 
 function Load-DotEnv {
@@ -171,6 +172,11 @@ function Get-PromtailReleaseName {
     return "$($env:K8S_RELEASE_NAME)-promtail"
 }
 
+function Get-LokiReleaseName {
+    Require-EnvVar 'K8S_RELEASE_NAME'
+    return "$($env:K8S_RELEASE_NAME)-loki"
+}
+
 function Sync-MigrationFiles {
     $migrationsDst = Join-Path $MigrateChartPath 'migrations'
     if (-not (Test-Path $MigrationsSrc)) {
@@ -265,6 +271,33 @@ function Install-Promtail {
     Write-Host "Promtail deployed: $promtailRelease (DaemonSet)"
 }
 
+function Install-Loki {
+    Require-EnvVar 'K8S_NAMESPACE'
+    $lokiRelease = Get-LokiReleaseName
+    $helmArgs = [System.Collections.Generic.List[string]]::new()
+    $helmArgs.Add('upgrade')
+    $helmArgs.Add('--install')
+    $helmArgs.Add($lokiRelease)
+    $helmArgs.Add($LokiChartPath)
+    $helmArgs.Add('--namespace')
+    $helmArgs.Add($env:K8S_NAMESPACE)
+    $helmArgs.Add('--set')
+    $helmArgs.Add("imagePullSecretName=$GhcrSecretName")
+    $helmArgs.Add('--set')
+    $helmArgs.Add('fullnameOverride=loki')
+    $helmArgs.Add('--wait')
+    $helmArgs.Add('--timeout')
+    $helmArgs.Add('5m')
+    & helm @helmArgs
+    Write-Host ('Loki deployed: ' + $lokiRelease + ' (Service: loki.' + $env:K8S_NAMESPACE + '.svc.cluster.local:3100)')
+}
+
+function Wait-ForLoki {
+    Require-EnvVar 'K8S_NAMESPACE'
+    Write-Host "Waiting for loki pod ready..."
+    kubectl wait --for=condition=ready pod -l app=loki -n $env:K8S_NAMESPACE --timeout=180s
+}
+
 function Start-PgPortForward {
     Require-EnvVar 'K8S_RELEASE_NAME'
     Require-EnvVar 'K8S_NAMESPACE'
@@ -311,6 +344,7 @@ function Uninstall-AllKeepPgVolume {
     Require-EnvVar 'K8S_NAMESPACE'
     Uninstall-WorkerAndMigrate
     Invoke-HelmUninstallIfExists -Release (Get-PromtailReleaseName) -Namespace $env:K8S_NAMESPACE
+    Invoke-HelmUninstallIfExists -Release (Get-LokiReleaseName) -Namespace $env:K8S_NAMESPACE
     Invoke-HelmUninstallIfExists -Release $env:K8S_RELEASE_NAME -Namespace $env:K8S_NAMESPACE
     Write-Info 'PostgreSQL PVC retained (StatefulSet volumeClaimTemplates are not removed by Helm uninstall):'
     $pvcs = kubectl get pvc -n $env:K8S_NAMESPACE -o name 2>$null | Where-Object { $_ -match 'rj-postgres-data' }
@@ -354,6 +388,17 @@ switch ($Action) {
     'helm-install-promtail' {
         Ensure-Namespace
         Install-Promtail
+    }
+    'helm-install-loki' {
+        Ensure-Namespace
+        Install-Loki
+    }
+    'helm-install-logging' {
+        Ensure-Namespace
+        Install-Loki
+        Wait-ForLoki
+        Install-Promtail
+        Write-Host "Logging stack deployed (Loki + Promtail)."
     }
     'deploy' {
         Ensure-Namespace

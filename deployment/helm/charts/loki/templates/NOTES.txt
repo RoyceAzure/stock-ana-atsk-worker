@@ -1,0 +1,19 @@
+Loki single-binary installed.
+
+1. 確認狀態：
+
+  kubectl get pods,svc,pvc -l app=loki -n {{ .Release.Namespace }}
+
+2. Push API（Promtail 用）：
+
+  http://{{ include "loki.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/loki/api/v1/push
+
+3. 本機查詢（另開終端）：
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "loki.fullname" . }} 3100:{{ .Values.service.port }}
+
+  curl -G "http://localhost:3100/loki/api/v1/query" --data-urlencode 'query={namespace="{{ .Release.Namespace }}"}'
+
+4. 部署 Promtail：
+
+  make helm-install-promtail

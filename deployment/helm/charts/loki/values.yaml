@@ -1,0 +1,30 @@
+image:
+  repository: grafana/loki
+  tag: "3.0.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecretName: ""
+
+# Service 名稱建議固定為 loki（對齊 promtail values 的 push URL）
+fullnameOverride: loki
+
+replicas: 1
+
+service:
+  port: 3100
+
+# 本機 / kind 用 filesystem + PVC
+persistence:
+  enabled: true
+  size: 10Gi
+
+# 日誌保留（開發環境 7 天）
+retentionPeriod: 168h
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 1Gi
+  requests:
+    cpu: 100m
+    memory: 512Mi

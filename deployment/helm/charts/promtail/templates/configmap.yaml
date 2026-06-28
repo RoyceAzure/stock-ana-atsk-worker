@@ -10,6 +10,7 @@ data:
       log_level: info
       http_listen_port: 3101
       grpc_listen_port: 0
+      health_check_target: {{ .Values.server.healthCheckTarget }}
 
     positions:
       filename: /run/promtail/positions.yaml

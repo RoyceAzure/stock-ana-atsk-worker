@@ -17,6 +17,13 @@ scrapeNamespaces:
 extraLabels:
   cluster: kind-lab
 
+server:
+  # false：node 上暫無可收集的 pod 時，/ready 仍回 healthy（避免 control-plane 一直 0/1）
+  healthCheckTarget: false
+
+# 排除 control-plane node（kind worker 沒有 node-role.kubernetes.io/worker 標籤，不能用該 selector）
+excludeControlPlane: true
+
 resources:
   limits:
     cpu: 200m
@@ -35,6 +42,4 @@ pipeline:
     - level
     - app
 
-tolerations:
-  - effect: NoSchedule
-    operator: Exists
+tolerations: []

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: loki
+description: Grafana Loki log store (single-binary, kind / local dev)
+type: application
+version: 0.1.0
+appVersion: "3.0.0"
