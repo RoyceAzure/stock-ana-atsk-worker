@@ -1,0 +1,30 @@
+image:
+  repository: grafana/grafana
+  tag: "11.0.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecretName: ""
+
+# Service 名稱建議固定為 grafana
+fullnameOverride: grafana
+
+service:
+  port: 3000
+
+admin:
+  user: admin
+  # 本機 dev 預設；正式環境請用 .env GRAFANA_ADMIN_PASSWORD 覆寫
+  password: admin
+
+# 對齊 loki chart 的 fullnameOverride=loki
+loki:
+  serviceName: loki
+  port: 3100
+
+resources:
+  limits:
+    cpu: 300m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi

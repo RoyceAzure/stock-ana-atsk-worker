@@ -1,0 +1,22 @@
+Grafana installed with Loki datasource.
+
+1. 本機開啟 UI（另開終端）：
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "grafana.fullname" . }} 3000:{{ .Values.service.port }}
+
+  瀏覽器：http://localhost:3000
+
+2. 登入：
+
+  帳號：{{ .Values.admin.user }}
+  密碼：見 Helm values / Secret {{ include "grafana.fullname" . }}-admin
+
+3. 查看 log：
+
+  Explore → Loki → 範例 LogQL：
+
+  {namespace="{{ .Release.Namespace }}", app="task-worker"}
+
+4. Loki URL（已自動設定）：
+
+  {{ include "grafana.lokiUrl" . }}

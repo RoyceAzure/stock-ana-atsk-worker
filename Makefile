@@ -17,9 +17,10 @@ HELM_CHART_DB_MIGRATE := ./deployment/helm/charts/db-migrate
 HELM_CHART_TASK_WORKER := ./deployment/helm/charts/task-worker
 HELM_CHART_PROMTAIL := ./deployment/helm/charts/promtail
 HELM_CHART_LOKI := ./deployment/helm/charts/loki
+HELM_CHART_GRAFANA := ./deployment/helm/charts/grafana
 K8S_SCRIPT := powershell -NoProfile -ExecutionPolicy Bypass -File .\deployment\scripts\k8s-local.ps1
 
-.PHONY: run db-backup db-restore docker-build kind-load-image kind-init limit-workers k8s-namespace k8s-ghcr-secret k8s-gcp-sa-secret helm-install-postgres helm-migrate helm-install-worker helm-install-loki helm-install-promtail helm-install-logging k8s-deploy-local k8s-deploy-all k8s-pg-port-forward k8s-undeploy k8s-undeploy-keep-pg k8s-undeploy-apps
+.PHONY: run db-backup db-restore docker-build kind-load-image kind-init limit-workers k8s-namespace k8s-ghcr-secret k8s-gcp-sa-secret helm-install-postgres helm-migrate helm-install-worker helm-install-loki helm-install-promtail helm-install-grafana helm-install-logging k8s-deploy-local k8s-deploy-all k8s-pg-port-forward k8s-grafana-port-forward grafana-port-forward k8s-undeploy k8s-undeploy-keep-pg k8s-undeploy-apps
 
 # 本機啟動 worker（讀取 .env / 環境變數）
 run:
@@ -74,15 +75,21 @@ helm-install-loki:
 helm-install-logging:
 	$(K8S_SCRIPT) -Action helm-install-logging
 
+helm-install-grafana:
+	$(K8S_SCRIPT) -Action helm-install-grafana
+
 k8s-deploy-local:
 	$(K8S_SCRIPT) -Action deploy
 
 k8s-deploy-all:
 	$(K8S_SCRIPT) -Action deploy-all
 
-# 本機連線 Postgres（會佔用終端，請另開視窗執行）
+# 本機 port-forward（會佔用終端，請另開視窗執行）
 k8s-pg-port-forward:
 	$(K8S_SCRIPT) -Action pg-port-forward
+
+k8s-grafana-port-forward grafana-port-forward:
+	$(K8S_SCRIPT) -Action grafana-port-forward
 
 # 卸載全部 Helm release（worker + migrate + postgres），保留 Postgres PVC 資料
 k8s-undeploy:

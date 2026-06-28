@@ -40,6 +40,12 @@ spec:
           args:
             - -config.file=/etc/promtail/promtail.yaml
             - -config.expand-env=true
+          env:
+            # DaemonSet 必須用 node 名稱，否則 __host__ 無法對應本機 log
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           ports:
             - name: http-metrics
               containerPort: 3101

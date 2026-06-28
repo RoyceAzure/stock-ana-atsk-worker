@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('namespace', 'ghcr-secret', 'gcp-sa-secret', 'helm-install', 'helm-migrate', 'helm-install-worker', 'helm-install-loki', 'helm-install-promtail', 'helm-install-logging', 'deploy', 'deploy-all', 'undeploy', 'undeploy-keep-pg', 'undeploy-apps', 'pg-port-forward')]
+    [ValidateSet('namespace', 'ghcr-secret', 'gcp-sa-secret', 'helm-install', 'helm-migrate', 'helm-install-worker', 'helm-install-loki', 'helm-install-promtail', 'helm-install-grafana', 'helm-install-logging', 'deploy', 'deploy-all', 'undeploy', 'undeploy-keep-pg', 'undeploy-apps', 'pg-port-forward', 'grafana-port-forward')]
     [string]$Action
 )
 
@@ -13,6 +13,7 @@ $MigrateChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/db-migrate'
 $WorkerChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/task-worker'
 $PromtailChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/promtail'
 $LokiChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/loki'
+$GrafanaChartPath = Join-Path $ProjectRoot 'deployment/helm/charts/grafana'
 $MigrationsSrc = Join-Path $ProjectRoot 'deployment/db/migrations'
 
 function Load-DotEnv {
@@ -104,6 +105,12 @@ function Get-PromtailHelmSetArgs {
     return $sets
 }
 
+function Get-GrafanaHelmSetArgs {
+    $sets = [System.Collections.Generic.List[string]]::new()
+    Add-HelmSetFromEnv -Target $sets -EnvName 'GRAFANA_ADMIN_PASSWORD' -HelmKey 'admin.password'
+    return $sets
+}
+
 function Ensure-Namespace {
     Require-EnvVar 'K8S_NAMESPACE'
     kubectl create namespace $env:K8S_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
@@ -175,6 +182,11 @@ function Get-PromtailReleaseName {
 function Get-LokiReleaseName {
     Require-EnvVar 'K8S_RELEASE_NAME'
     return "$($env:K8S_RELEASE_NAME)-loki"
+}
+
+function Get-GrafanaReleaseName {
+    Require-EnvVar 'K8S_RELEASE_NAME'
+    return "$($env:K8S_RELEASE_NAME)-grafana"
 }
 
 function Sync-MigrationFiles {
@@ -298,6 +310,38 @@ function Wait-ForLoki {
     kubectl wait --for=condition=ready pod -l app=loki -n $env:K8S_NAMESPACE --timeout=180s
 }
 
+function Install-Grafana {
+    Require-EnvVar 'K8S_NAMESPACE'
+    $grafanaRelease = Get-GrafanaReleaseName
+    $helmArgs = [System.Collections.Generic.List[string]]::new()
+    $helmArgs.Add('upgrade')
+    $helmArgs.Add('--install')
+    $helmArgs.Add($grafanaRelease)
+    $helmArgs.Add($GrafanaChartPath)
+    $helmArgs.Add('--namespace')
+    $helmArgs.Add($env:K8S_NAMESPACE)
+    $helmArgs.Add('--set')
+    $helmArgs.Add("imagePullSecretName=$GhcrSecretName")
+    $helmArgs.Add('--set')
+    $helmArgs.Add('fullnameOverride=grafana')
+    foreach ($arg in (Get-GrafanaHelmSetArgs)) {
+        $helmArgs.Add($arg)
+    }
+    $helmArgs.Add('--wait')
+    $helmArgs.Add('--timeout')
+    $helmArgs.Add('5m')
+    & helm @helmArgs
+    Write-Host ('Grafana deployed: ' + $grafanaRelease + ' (Service: grafana.' + $env:K8S_NAMESPACE + '.svc.cluster.local:3000)')
+}
+
+function Start-GrafanaPortForward {
+    Require-EnvVar 'K8S_NAMESPACE'
+    $localPort = if ($env:GRAFANA_LOCAL_PORT) { $env:GRAFANA_LOCAL_PORT } else { '3000' }
+    Write-Host "Forwarding localhost:$localPort -> grafana.$($env:K8S_NAMESPACE):3000 (Ctrl+C to stop)"
+    Write-Host "Login: admin / (see .env GRAFANA_ADMIN_PASSWORD or chart default)"
+    kubectl port-forward -n $env:K8S_NAMESPACE svc/grafana "${localPort}:3000"
+}
+
 function Start-PgPortForward {
     Require-EnvVar 'K8S_RELEASE_NAME'
     Require-EnvVar 'K8S_NAMESPACE'
@@ -343,6 +387,7 @@ function Uninstall-AllKeepPgVolume {
     Require-EnvVar 'K8S_RELEASE_NAME'
     Require-EnvVar 'K8S_NAMESPACE'
     Uninstall-WorkerAndMigrate
+    Invoke-HelmUninstallIfExists -Release (Get-GrafanaReleaseName) -Namespace $env:K8S_NAMESPACE
     Invoke-HelmUninstallIfExists -Release (Get-PromtailReleaseName) -Namespace $env:K8S_NAMESPACE
     Invoke-HelmUninstallIfExists -Release (Get-LokiReleaseName) -Namespace $env:K8S_NAMESPACE
     Invoke-HelmUninstallIfExists -Release $env:K8S_RELEASE_NAME -Namespace $env:K8S_NAMESPACE
@@ -393,12 +438,17 @@ switch ($Action) {
         Ensure-Namespace
         Install-Loki
     }
+    'helm-install-grafana' {
+        Ensure-Namespace
+        Install-Grafana
+    }
     'helm-install-logging' {
         Ensure-Namespace
         Install-Loki
         Wait-ForLoki
         Install-Promtail
-        Write-Host "Logging stack deployed (Loki + Promtail)."
+        Install-Grafana
+        Write-Host 'Logging stack deployed (Loki + Promtail + Grafana).'
     }
     'deploy' {
         Ensure-Namespace
@@ -421,6 +471,9 @@ switch ($Action) {
     }
     'pg-port-forward' {
         Start-PgPortForward
+    }
+    'grafana-port-forward' {
+        Start-GrafanaPortForward
     }
     'undeploy' {
         Uninstall-AllKeepPgVolume
