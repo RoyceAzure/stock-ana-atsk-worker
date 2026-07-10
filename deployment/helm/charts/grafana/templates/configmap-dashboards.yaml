@@ -38,6 +38,8 @@ metadata:
 data:
   k8s-overview.json: |
 {{- tpl (.Files.Get "dashboards/k8s-overview.json") . | nindent 4 }}
+  node-capacity.json: |
+{{- tpl (.Files.Get "dashboards/node-capacity.json") . | nindent 4 }}
   {{- if .Values.dashboards.worker.enabled }}
   backtest-worker.json: |
 {{- tpl (.Files.Get "dashboards/backtest-worker.json") . | nindent 4 }}

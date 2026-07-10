@@ -10,7 +10,6 @@ from infra.repo.object_storage import to_duckdb_httpfs_uri
 from models.pipline_model.pandas_trade_price_schema import validate_pandas_trade_price_output
 from models.pipline_model.pipline_params import SinkParams
 from infra.repo.pipline_model.data_sink import IDataSink
-from util.memory_log import log_mem
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +42,6 @@ class PandasTradePriceObjectStorageParquetSink(IDataSink[pd.DataFrame]):
 
         storage_config = self.parms.resolved_storage_config()
         df = self._df_selelct
-        log_mem(
-            logger,
-            "sink_enter",
-            df,
-            sink_conn_id=id(self.duckdb_conn),
-        )
         required_cols = ["code", "candle", "start_date", "end_date"]
         missing = [c for c in required_cols if c not in df.columns]
         if missing:
@@ -76,13 +69,6 @@ class PandasTradePriceObjectStorageParquetSink(IDataSink[pd.DataFrame]):
                     lock_key = to_duckdb_httpfs_uri(storage_config, bucket, folder_name)
 
                     df_filtered = df[(df["code"] == code) & (df["candle"] == candle)]
-                    log_mem(
-                        logger,
-                        "sink_group_before_copy",
-                        df_filtered,
-                        code=code,
-                        candle=candle,
-                    )
                     logger.info(
                         f"save data to {storage_config.backend.value}: "
                         f"{code}, {candle}, {start_date}, {end_date}"
@@ -105,13 +91,6 @@ class PandasTradePriceObjectStorageParquetSink(IDataSink[pd.DataFrame]):
                             finally:
                                 try:
                                     con.unregister("_sink_df")
-                                    log_mem(
-                                        logger,
-                                        "sink_group_after_unregister",
-                                        df_filtered,
-                                        code=code,
-                                        candle=candle,
-                                    )
                                 except Exception:
                                     pass
 
@@ -128,24 +107,12 @@ class PandasTradePriceObjectStorageParquetSink(IDataSink[pd.DataFrame]):
                 )
                 return error_msg
             finally:
-                log_mem(
-                    logger,
-                    "sink_before_shrink_memory",
-                    df,
-                    sink_conn_id=id(self.duckdb_conn),
-                )
                 logger.info("duck db shrink memory start")
                 try:
                     con.execute("PRAGMA shrink_memory();")
                 except Exception:
                     pass
                 logger.info("duck db shrink memory end")
-                log_mem(
-                    logger,
-                    "sink_after_shrink_memory",
-                    df,
-                    sink_conn_id=id(self.duckdb_conn),
-                )
         return None
 
     def _validate(self, df: pd.DataFrame) -> Tuple[Optional[pd.DataFrame], Optional[str]]:

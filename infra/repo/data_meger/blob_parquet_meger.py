@@ -8,7 +8,6 @@ from infra.repo.duckdb.config import DuckDBStorageConfig, strip_uri_scheme
 from infra.repo.duckdb.gcs_auth_retry import with_gcs_auth_retry
 from infra.repo.duckdb.gcs_config import GcsDuckDBConfig
 from infra.repo.duckdb_manager import DuckDBManager
-from util.memory_log import log_mem
 
 logger = logging.getLogger(__name__)
 
@@ -123,15 +122,6 @@ class BlobParquetMerger:
             )
             return
 
-        log_mem(
-            logger,
-            "merge_single_start",
-            code=code,
-            candle=candle,
-            source_count=len(sources),
-            duckdb_conn_id=id(self.duckdb_con),
-        )
-
         source_query = self._duck_uri(
             f"{self.base_path}/{code}_{candle}_*/part-*.parquet"
         )
@@ -201,14 +191,6 @@ class BlobParquetMerger:
                         candle,
                         final_path,
                     )
-                    log_mem(
-                        logger,
-                        "merge_single_end",
-                        code=code,
-                        candle=candle,
-                        source_count=len(sources),
-                        duckdb_conn_id=id(self.duckdb_con),
-                    )
                     return
                 except Exception as e:
                     can_retry = _is_retriable_merge_error(e) and attempt < _MAX_MERGE_RETRIES
@@ -230,15 +212,6 @@ class BlobParquetMerger:
                         candle,
                         exc_info=True,
                     )
-                    log_mem(
-                        logger,
-                        "merge_single_end",
-                        code=code,
-                        candle=candle,
-                        source_count=len(sources),
-                        duckdb_conn_id=id(self.duckdb_con),
-                        err="failed",
-                    )
                     return
                 finally:
                     if temp_path and not moved and self.fs.exists(temp_path):
@@ -247,19 +220,10 @@ class BlobParquetMerger:
                         con.execute("PRAGMA shrink_memory();")
                     except Exception:
                         pass
-                    log_mem(
-                        logger,
-                        "merge_single_after_shrink",
-                        code=code,
-                        candle=candle,
-                        duckdb_conn_id=id(self.duckdb_con),
-                    )
 
     def batch_merge(self, task_list: List[Tuple[str, str]]):
-        log_mem(logger, "merge_batch_loop_start", pair_count=len(task_list))
         for code, candle in task_list:
             self.merge_single(code, candle)
-        log_mem(logger, "merge_batch_loop_end", pair_count=len(task_list))
 
     def merge_all_available_data(self):
         """合併舊有 {code, candle} 資料。僅當同一組合出現超過一次時才執行合併。"""

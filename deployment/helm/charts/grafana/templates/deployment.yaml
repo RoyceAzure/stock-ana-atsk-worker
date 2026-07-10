@@ -92,6 +92,8 @@ spec:
             items:
               - key: k8s-overview.json
                 path: k8s-overview.json
+              - key: node-capacity.json
+                path: node-capacity.json
         {{- if .Values.dashboards.worker.enabled }}
         - name: dashboards-backtest
           configMap:

@@ -1,11 +1,7 @@
 from infra.repo.pipline_model.data_sink import IDataSink
-import logging
 from typing import Callable, Tuple, Optional, TypeVar, Generic, List
 import pandas as pd
 from service.pipline.data_set import IDataSet
-from util.memory_log import log_mem
-
-logger = logging.getLogger(__name__)
 
 
 T = TypeVar("T", bound=pd.DataFrame)
@@ -63,15 +59,13 @@ class Pipline(Generic[T]):
         df, err = self.data_set.load_data()
         if df is None:
             return None, f"資料筆數不足，無法執行任務"
-        log_mem(logger, "pipeline_after_load", df)
-
+        
         for stage in self.stages:
             print(f"pipline process stage: {stage.name}")
             df, err = stage.process(df)
             if err is not None:
                 return None, f"{stage} stage failed: {err}"
-            log_mem(logger, f"pipeline_stage_after_{stage.name}", df)
-
+            
         print(f"pipline save data")
         err = self.data_sink.save_data(df)
         if err is not None:
@@ -80,15 +74,7 @@ class Pipline(Generic[T]):
         for action in self.post_sink_actions:
             action_name = getattr(action, "__name__", action.__class__.__name__)
             print(f"pipline post sink action: {action_name}")
-            log_mem(logger, "pipeline_post_sink_before", df, action=action_name)
             err = action(df)
-            log_mem(
-                logger,
-                "pipeline_post_sink_after",
-                df,
-                action=action_name,
-                err=err,
-            )
             if err is not None:
                 return df, err
 
