@@ -42,7 +42,7 @@ class GcsDuckDBConfig(DuckDBStorageConfig):
 
     def setup_connection(self, con: duckdb.DuckDBPyConnection) -> None:
         con.execute("INSTALL httpfs; LOAD httpfs;")
-        con.execute(self.build_secret_sql())
+        self.refresh_connection_auth(con)
         if self.auth_mode is GcpAuthMode.ADC:
             logger.info("[DuckDB GCS] 憑證模式: ADC（Workload Identity / 預設應用程式憑證）")
         else:
@@ -50,6 +50,10 @@ class GcsDuckDBConfig(DuckDBStorageConfig):
                 "[DuckDB GCS] 憑證模式: service_account_json (%s)",
                 self.service_account_key_file,
             )
+
+    def refresh_connection_auth(self, con: duckdb.DuckDBPyConnection) -> None:
+        """更新 GCS bearer secret（token 約 1 小時過期，連線池重用前須 refresh）。"""
+        con.execute(self.build_secret_sql())
 
     def build_secret_sql(self) -> str:
         token = _sql_literal(

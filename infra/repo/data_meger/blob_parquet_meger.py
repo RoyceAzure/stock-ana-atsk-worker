@@ -5,8 +5,10 @@ from typing import Any, List, Tuple
 import duckdb
 
 from infra.repo.duckdb.config import DuckDBStorageConfig, strip_uri_scheme
+from infra.repo.duckdb.gcs_auth_retry import with_gcs_auth_retry
 from infra.repo.duckdb.gcs_config import GcsDuckDBConfig
 from infra.repo.duckdb_manager import DuckDBManager
+from util.memory_log import log_mem
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +123,15 @@ class BlobParquetMerger:
             )
             return
 
+        log_mem(
+            logger,
+            "merge_single_start",
+            code=code,
+            candle=candle,
+            source_count=len(sources),
+            duckdb_conn_id=id(self.duckdb_con),
+        )
+
         source_query = self._duck_uri(
             f"{self.base_path}/{code}_{candle}_*/part-*.parquet"
         )
@@ -137,53 +148,66 @@ class BlobParquetMerger:
             )
             with self.duckdb_con.cursor() as con:
                 try:
-                    df = con.execute(
-                        f"SELECT MIN(trade_time_date)::DATE as s, MAX(trade_time_date)::DATE as e "
-                        f"FROM read_parquet('{source_query}')"
-                    ).df()
-                    start_s, end_s = (
-                        df["s"][0].strftime("%Y-%m-%d"),
-                        df["e"][0].strftime("%Y-%m-%d"),
-                    )
-
-                    target_name = f"{code}_{candle}_{start_s}_{end_s}.parquet"
-                    final_path = f"{self.base_path}/{target_name}"
-                    temp_path = f"{self.base_path}/TEMP_{target_name}"
-
-                    dedup_and_sorted_copy_sql = f"""
-                        COPY (
-                            SELECT * EXCLUDE (rn)
-                            FROM (
-                                SELECT
-                                    *,
-                                    ROW_NUMBER() OVER (PARTITION BY trade_time ORDER BY trade_time) AS rn
-                                FROM read_parquet('{source_query}')
-                            )
-                            WHERE rn = 1
-                            ORDER BY trade_time
-                        ) TO '{self._duck_uri(f"{temp_path}/part-00000.snappy.parquet")}'
-                        (FORMAT PARQUET, CODEC 'SNAPPY')
-                    """
-                    con.execute(dedup_and_sorted_copy_sql)
-                    success_uri = self._duck_uri(f"{temp_path}/_SUCCESS")
-                    if isinstance(self.duckdb_config, GcsDuckDBConfig):
-                        con.execute(
-                            f"COPY (SELECT 1) TO '{success_uri}' "
-                            f"(FORMAT CSV, HEADER false)"
+                    def _merge_with_duckdb() -> str:
+                        nonlocal temp_path, moved
+                        df = con.execute(
+                            f"SELECT MIN(trade_time_date)::DATE as s, MAX(trade_time_date)::DATE as e "
+                            f"FROM read_parquet('{source_query}')"
+                        ).df()
+                        start_s, end_s = (
+                            df["s"][0].strftime("%Y-%m-%d"),
+                            df["e"][0].strftime("%Y-%m-%d"),
                         )
-                    else:
-                        with self.fs.open(success_uri, "wb"):
-                            pass
 
-                    self._remove_dataset_folder(final_path)
-                    self._move_dataset_folder(temp_path, final_path)
-                    moved = True
-                    self._cleanup_old_datasets(code, candle, final_path)
+                        target_name = f"{code}_{candle}_{start_s}_{end_s}.parquet"
+                        final_path = f"{self.base_path}/{target_name}"
+                        temp_path = f"{self.base_path}/TEMP_{target_name}"
+
+                        dedup_and_sorted_copy_sql = f"""
+                            COPY (
+                                SELECT * EXCLUDE (rn)
+                                FROM (
+                                    SELECT
+                                        *,
+                                        ROW_NUMBER() OVER (PARTITION BY trade_time ORDER BY trade_time) AS rn
+                                    FROM read_parquet('{source_query}')
+                                )
+                                WHERE rn = 1
+                                ORDER BY trade_time
+                            ) TO '{self._duck_uri(f"{temp_path}/part-00000.snappy.parquet")}'
+                            (FORMAT PARQUET, CODEC 'SNAPPY')
+                        """
+                        con.execute(dedup_and_sorted_copy_sql)
+                        success_uri = self._duck_uri(f"{temp_path}/_SUCCESS")
+                        if isinstance(self.duckdb_config, GcsDuckDBConfig):
+                            con.execute(
+                                f"COPY (SELECT 1) TO '{success_uri}' "
+                                f"(FORMAT CSV, HEADER false)"
+                            )
+                        else:
+                            with self.fs.open(success_uri, "wb"):
+                                pass
+
+                        self._remove_dataset_folder(final_path)
+                        self._move_dataset_folder(temp_path, final_path)
+                        moved = True
+                        self._cleanup_old_datasets(code, candle, final_path)
+                        return final_path
+
+                    final_path = with_gcs_auth_retry(self.duckdb_con, _merge_with_duckdb)
                     logger.info(
                         "Merged code=%s candle=%s to %s",
                         code,
                         candle,
                         final_path,
+                    )
+                    log_mem(
+                        logger,
+                        "merge_single_end",
+                        code=code,
+                        candle=candle,
+                        source_count=len(sources),
+                        duckdb_conn_id=id(self.duckdb_con),
                     )
                     return
                 except Exception as e:
@@ -206,6 +230,15 @@ class BlobParquetMerger:
                         candle,
                         exc_info=True,
                     )
+                    log_mem(
+                        logger,
+                        "merge_single_end",
+                        code=code,
+                        candle=candle,
+                        source_count=len(sources),
+                        duckdb_conn_id=id(self.duckdb_con),
+                        err="failed",
+                    )
                     return
                 finally:
                     if temp_path and not moved and self.fs.exists(temp_path):
@@ -214,9 +247,19 @@ class BlobParquetMerger:
                         con.execute("PRAGMA shrink_memory();")
                     except Exception:
                         pass
+                    log_mem(
+                        logger,
+                        "merge_single_after_shrink",
+                        code=code,
+                        candle=candle,
+                        duckdb_conn_id=id(self.duckdb_con),
+                    )
+
     def batch_merge(self, task_list: List[Tuple[str, str]]):
+        log_mem(logger, "merge_batch_loop_start", pair_count=len(task_list))
         for code, candle in task_list:
             self.merge_single(code, candle)
+        log_mem(logger, "merge_batch_loop_end", pair_count=len(task_list))
 
     def merge_all_available_data(self):
         """合併舊有 {code, candle} 資料。僅當同一組合出現超過一次時才執行合併。"""

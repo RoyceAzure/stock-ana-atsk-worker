@@ -1,44 +1,46 @@
 PYTHON ?= python
+BASH ?= bash
+DB_SCRIPT := powershell -NoProfile -ExecutionPolicy Bypass -File
 
-# Windows：避免 PATH 的 bash 指向 WSL；使用 Git Bash 以共用 Windows 的 aws / psql / localhost port-forward
-ifeq ($(OS),Windows_NT)
-BASH := "C:/Program Files/Git/bin/bash.exe"
-else
-BASH := bash
-endif
-
-GHCR_SECRET_NAME ?= ghcr-secret
+# kind-load-image tagging; override with APP_ENV=prod make kind-load-image
+APP_ENV ?=dev
 DOCKER_IMAGE ?= ghcr.io/royceazure/stock-ana-atsk-worker
-DOCKER_TAG ?= dev-latest
-DOCKERFILE := deployment/docker/Dockerfile
+DOCKER_TAG ?= $(APP_ENV)-latest
 KIND_CLUSTER_NAME ?= kind-lab
-HELM_CHART_POSTGRES := ./deployment/helm/charts/postgres
-HELM_CHART_DB_MIGRATE := ./deployment/helm/charts/db-migrate
-HELM_CHART_TASK_WORKER := ./deployment/helm/charts/task-worker
-HELM_CHART_PROMTAIL := ./deployment/helm/charts/promtail
-HELM_CHART_LOKI := ./deployment/helm/charts/loki
-HELM_CHART_GRAFANA := ./deployment/helm/charts/grafana
-HELM_CHART_METRICS := ./deployment/helm/charts/metrics
 K8S_SCRIPT := powershell -NoProfile -ExecutionPolicy Bypass -File .\deployment\scripts\k8s-local.ps1
 
-.PHONY: run db-backup db-restore docker-build kind-load-image kind-init limit-workers k8s-namespace k8s-ghcr-secret k8s-gcp-sa-secret helm-install-postgres helm-migrate helm-install-worker helm-install-loki helm-install-promtail helm-install-grafana helm-install-metrics helm-install-logging helm-install-observability k8s-deploy-local k8s-deploy-all k8s-pg-port-forward k8s-grafana-port-forward grafana-port-forward k8s-undeploy k8s-undeploy-keep-pg k8s-undeploy-apps
+.PHONY: run db-backup db-restore docker-login-ghcr docker-build docker-build-push-worker kind-load-image kind-init limit-workers k8s-namespace k8s-ghcr-secret k8s-gcp-sa-secret helm-install-postgres helm-migrate helm-install-worker helm-install-loki helm-install-promtail helm-install-grafana helm-install-metrics helm-install-logging helm-install-observability k8s-deploy-local k8s-deploy-all k8s-pg-port-forward k8s-grafana-port-forward grafana-port-forward k8s-undeploy k8s-undeploy-keep-pg k8s-undeploy-apps k8s-rollout-worker k8s-update-worker-image
 
-# 本機啟動 worker（讀取 .env / 環境變數）
+# Run worker locally.
 run:
 	$(PYTHON) main.py --mode consumer
 
-# DB 備份 / 還原（讀取 script/.env；Windows 透過 Git Bash 執行）
+# Database backup / restore (PowerShell on Windows; bash elsewhere).
+ifeq ($(OS),Windows_NT)
+db-backup:
+	$(DB_SCRIPT) .\script\db-backup.ps1
+
+db-restore:
+	$(DB_SCRIPT) .\script\db-restore.ps1
+else
 db-backup:
 	$(BASH) script/db-backup.sh
 
 db-restore:
 	$(BASH) script/db-restore.sh
+endif
 
-# 建置 worker 映像（專案根目錄執行）
+# Docker / GHCR: load .env via k8s-local.ps1 (CRLF-safe on Windows).
+docker-login-ghcr:
+	$(K8S_SCRIPT) -Action docker-login-ghcr
+
 docker-build:
-	docker build -f $(DOCKERFILE) -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	$(K8S_SCRIPT) -Action docker-build
 
-# kind 載入本機映像（需先 make docker-build）
+docker-build-push-worker:
+	$(K8S_SCRIPT) -Action docker-build-push-worker
+
+# Load the local image into kind after docker-build.
 kind-load-image:
 	kind load docker-image $(DOCKER_IMAGE):$(DOCKER_TAG) --name $(KIND_CLUSTER_NAME)
 
@@ -48,7 +50,7 @@ kind-init:
 limit-workers:
 	powershell -Command "docker update --cpus='2.0' --memory='2g' --memory-swap='2g' $$(docker ps --filter 'label=io.x-k8s.kind.role=worker' --format '{{.Names}}')"
 
-# 以下 k8s targets 透過 PowerShell 讀取 .env（Windows 相容）
+# K8s targets use PowerShell so .env loading works on Windows.
 k8s-namespace:
 	$(K8S_SCRIPT) -Action namespace
 
@@ -66,6 +68,14 @@ helm-migrate:
 
 helm-install-worker:
 	$(K8S_SCRIPT) -Action helm-install-worker
+
+# Restart worker pods so they re-pull image (e.g. after push to dev-latest).
+k8s-rollout-worker:
+	$(K8S_SCRIPT) -Action rollout-worker
+
+# Build, push to GHCR, rollout restart worker (one-shot image update).
+k8s-update-worker-image:
+	$(K8S_SCRIPT) -Action update-worker-image
 
 helm-install-promtail:
 	$(K8S_SCRIPT) -Action helm-install-promtail
@@ -91,19 +101,19 @@ k8s-deploy-local:
 k8s-deploy-all:
 	$(K8S_SCRIPT) -Action deploy-all
 
-# 本機 port-forward（會佔用終端，請另開視窗執行）
+# Port-forward commands keep the terminal occupied.
 k8s-pg-port-forward:
 	$(K8S_SCRIPT) -Action pg-port-forward
 
 k8s-grafana-port-forward grafana-port-forward:
 	$(K8S_SCRIPT) -Action grafana-port-forward
 
-# 卸載全部 Helm release（worker + migrate + postgres），保留 Postgres PVC 資料
+# Uninstall Helm releases while keeping the Postgres PVC.
 k8s-undeploy:
 	$(K8S_SCRIPT) -Action undeploy-keep-pg
 
 k8s-undeploy-keep-pg: k8s-undeploy
 
-# 僅卸載 worker + migrate，Postgres 與其 volume 維持運行
+# Uninstall only worker and migration releases.
 k8s-undeploy-apps:
 	$(K8S_SCRIPT) -Action undeploy-apps

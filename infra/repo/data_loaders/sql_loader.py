@@ -1,12 +1,15 @@
 import json
+import logging
 from typing import Any, List, Optional, Tuple, Union
 
 import pandas as pd
 
 from infra.repo.data_loaders.base import DataLoader
 from util.generate_util import format_date_to_utc_midnight
+from util.memory_log import log_mem
 
 _OHLC_COLUMNS = ("open", "high", "low", "close")
+logger = logging.getLogger(__name__)
 
 
 def _coerce_ohlc_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -103,11 +106,42 @@ class SQLLoader(DataLoader):
             with self.conn.cursor() as cursor:
                 cursor.execute(query, params)
                 columns = [desc[0] for desc in cursor.description]
+                log_mem(
+                    logger,
+                    "sql_before_fetchall",
+                    code=code,
+                    candle=candle,
+                    filter_time_col=filter_time_col,
+                )
                 res = cursor.fetchall()
+                log_mem(
+                    logger,
+                    "sql_after_fetchall",
+                    code=code,
+                    candle=candle,
+                    row_count=len(res),
+                )
                 self.conn.commit()
                 data_df = pd.DataFrame(res, columns=columns)
                 data_df = _coerce_ohlc_columns(data_df)
                 data_df = data_df.sort_values("trade_time", ascending=True)
+                log_mem(
+                    logger,
+                    "sql_after_dataframe",
+                    data_df,
+                    code=code,
+                    candle=candle,
+                    row_count=len(data_df),
+                )
+                del res
+                log_mem(
+                    logger,
+                    "sql_after_del_res",
+                    data_df,
+                    code=code,
+                    candle=candle,
+                    row_count=len(data_df),
+                )
                 return data_df, None
         except Exception as e:
             self.conn.rollback()

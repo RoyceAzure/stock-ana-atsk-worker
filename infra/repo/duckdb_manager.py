@@ -6,6 +6,7 @@ from typing import Optional
 import duckdb
 
 from infra.repo.duckdb.config import DuckDBStorageConfig
+from infra.repo.duckdb.gcs_config import GcsDuckDBConfig
 
 
 class DuckDBManager:
@@ -46,6 +47,13 @@ class DuckDBManager:
             return cls._pool.get_nowait()
         except Empty:
             return cls._create_new_connection()
+
+    @classmethod
+    def refresh_gcs_auth(cls, con: duckdb.DuckDBPyConnection) -> None:
+        """GCS 讀寫前更新 DuckDB httpfs bearer token。"""
+        config = cls._ensure_config()
+        if isinstance(config, GcsDuckDBConfig):
+            config.refresh_connection_auth(con)
 
     @classmethod
     def return_conn(cls, con: duckdb.DuckDBPyConnection):

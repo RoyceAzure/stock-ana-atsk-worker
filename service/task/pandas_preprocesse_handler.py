@@ -1,3 +1,6 @@
+import gc
+import logging
+
 import pandas as pd
 import psycopg2
 
@@ -7,6 +10,9 @@ from infra.repo.pipline_model.data_sink import IDataSink
 from models.task_event import EventStage, TaskEvent
 from service.pipline.pandas_trade_price_pipline import get_pandas_pre_process_pipline
 from service.task.handler import TaskHandler
+from util.memory_log import log_mem
+
+logger = logging.getLogger(__name__)
 
 
 class PreProcessPandasTaskProcessor(TaskHandler):
@@ -43,13 +49,57 @@ class PreProcessPandasTaskProcessor(TaskHandler):
             ValueError: 當配置無效時拋出
             Exception: 當處理失敗時拋出
         """
-        pipline = get_pandas_pre_process_pipline(
-            self.pg_conn,
-            self.data_sink,
-            task_event.source_meta_data.as_dict(),
-            parquet_merger=self.parquet_meger,
+        meta = task_event.source_meta_data.as_dict()
+        task_id = getattr(task_event, "task_id", None)
+        log_mem(
+            logger,
+            "task_start",
+            task_id=task_id,
+            code=meta.get("code"),
+            candle=meta.get("candle"),
         )
 
-        _, err = pipline.run()
+        pipline = None
+        df = None
+        err = None
+        try:
+            pipline = get_pandas_pre_process_pipline(
+                self.pg_conn,
+                self.data_sink,
+                meta,
+                parquet_merger=self.parquet_meger,
+            )
+            df, err = pipline.run()
+            log_mem(
+                logger,
+                "task_end",
+                df,
+                task_id=task_id,
+                code=meta.get("code"),
+                candle=meta.get("candle"),
+                err=err,
+            )
+        finally:
+            if df is not None:
+                log_mem(
+                    logger,
+                    "task_release_df",
+                    df,
+                    task_id=task_id,
+                    code=meta.get("code"),
+                    candle=meta.get("candle"),
+                )
+            df = None
+            pipline = None
+            gc.collect()
+            log_mem(
+                logger,
+                "task_end_after_gc",
+                task_id=task_id,
+                code=meta.get("code"),
+                candle=meta.get("candle"),
+                err=err,
+            )
+
         if err is not None:
             raise PermanentError(err)

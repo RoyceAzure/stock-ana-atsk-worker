@@ -60,3 +60,15 @@ class TestGcsDuckDBConfig:
         con = MagicMock()
         config.setup_connection(con)
         assert con.execute.call_count == 2
+
+    def test_refresh_connection_auth_updates_secret_only(self, mocker):
+        refresh = mocker.patch(
+            "infra.repo.duckdb.gcs_config.refresh_gcp_access_token",
+            return_value="fresh-token",
+        )
+        config = GcsDuckDBConfig()
+        con = MagicMock()
+        config.refresh_connection_auth(con)
+        con.execute.assert_called_once()
+        assert "BEARER_TOKEN 'fresh-token'" in con.execute.call_args[0][0]
+        refresh.assert_called_once()

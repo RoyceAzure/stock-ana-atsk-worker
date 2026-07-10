@@ -2,7 +2,7 @@
 image:
   repository: ghcr.io/royceazure/stock-ana-atsk-worker
   tag: dev-latest
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 # 私有 GHCR 映像 pull secret（本地由 k8s-local.ps1 建立，GCP 可留空）
 imagePullSecretName: ""
@@ -19,6 +19,7 @@ postgres:
   secretName: ""
 
 worker:
+  appEnv: dev
   mode: consumer
   taskTypes: preprocessing
   logLevel: info

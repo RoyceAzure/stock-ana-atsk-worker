@@ -1,9 +1,12 @@
 from abc import ABC, abstractmethod
+import logging
 from typing import Tuple, Optional, TypeVar, Generic
 import pandas as pd
 from models.pipline_model.pipline_params import SinkLocationType, SinkParams
+from util.memory_log import log_mem
 
 T = TypeVar("T", bound=pd.DataFrame)
+logger = logging.getLogger(__name__)
 
 class IDataSink(ABC, Generic[T]):
     """
@@ -14,20 +17,38 @@ class IDataSink(ABC, Generic[T]):
         初始化 DataSet，設置數據加載所需的參數
         """ 
         self.parms = args
-    
-    
+
+    def _release_df_select(self) -> None:
+        df = getattr(self, "_df_selelct", None)
+        if df is not None:
+            log_mem(logger, "sink_release_df_select", df)
+        self._df_selelct = None
+
     def save_data(self, dataFrame : T) -> Optional[str]:
         """
         """
         try:
+            old_df = getattr(self, "_df_selelct", None)
+            if old_df is not None:
+                log_mem(logger, "sink_save_data_existing_df_before_replace", old_df)
             self._df_selelct, err = self._validate(dataFrame)
             if err is not None:
                 return err
-            
-            return self._save()
-            
+
+            log_mem(logger, "sink_save_data_after_validate", self._df_selelct)
+            save_err = self._save()
+            log_mem(
+                logger,
+                "sink_save_data_after_save",
+                self._df_selelct,
+                err=save_err,
+            )
+            return save_err
+
         except Exception as e:
             return str(e)
+        finally:
+            self._release_df_select()
 
     @abstractmethod
     def _validate(self, df: T) -> Tuple[Optional[T], Optional[str]]:

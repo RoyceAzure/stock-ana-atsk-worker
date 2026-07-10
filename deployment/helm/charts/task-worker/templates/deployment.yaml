@@ -38,6 +38,8 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "main.py", "--mode", {{ .Values.worker.mode | quote }}]
           env:
+            - name: APP_ENV
+              value: {{ .Values.worker.appEnv | default "dev" | quote }}
             - name: WORKER_MODE
               value: {{ .Values.worker.mode | quote }}
             - name: LOG_LEVEL

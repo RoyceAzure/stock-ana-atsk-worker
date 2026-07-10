@@ -1,6 +1,6 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('namespace', 'ghcr-secret', 'gcp-sa-secret', 'helm-install', 'helm-migrate', 'helm-install-worker', 'helm-install-loki', 'helm-install-promtail', 'helm-install-grafana', 'helm-install-metrics', 'helm-install-logging', 'helm-install-observability', 'deploy', 'deploy-all', 'undeploy', 'undeploy-keep-pg', 'undeploy-apps', 'pg-port-forward', 'grafana-port-forward')]
+    [ValidateSet('namespace', 'ghcr-secret', 'gcp-sa-secret', 'helm-install', 'helm-migrate', 'helm-install-worker', 'helm-install-loki', 'helm-install-promtail', 'helm-install-grafana', 'helm-install-metrics', 'helm-install-logging', 'helm-install-observability', 'deploy', 'deploy-all', 'undeploy', 'undeploy-keep-pg', 'undeploy-apps', 'pg-port-forward', 'grafana-port-forward', 'docker-login-ghcr', 'docker-build', 'docker-build-push-worker', 'rollout-worker', 'update-worker-image')]
     [string]$Action
 )
 
@@ -19,13 +19,21 @@ $MigrationsSrc = Join-Path $ProjectRoot 'deployment/db/migrations'
 
 function Load-DotEnv {
     param([string]$Path)
+    # Optional .env: fill missing process env keys only; never overwrite existing values.
     if (-not (Test-Path $Path)) {
-        throw ".env not found at $Path"
+        Write-Host ('[INFO] .env not found at ' + $Path + '; skip')
+        return
     }
     Get-Content $Path | ForEach-Object {
         $line = $_.Trim()
         if ($line -and -not $line.StartsWith('#') -and $line -match '^([^=]+)=(.*)$') {
-            Set-Item -Path "env:$($matches[1].Trim())" -Value $matches[2].Trim()
+            $name = $matches[1].Trim()
+            $value = $matches[2].Trim()
+            $existing = [Environment]::GetEnvironmentVariable($name, 'Process')
+            if (-not [string]::IsNullOrWhiteSpace($existing)) {
+                return
+            }
+            Set-Item -Path "env:$name" -Value $value
         }
     }
 }
@@ -43,10 +51,60 @@ Load-DotEnv -Path $EnvFile
 $GhcrSecretName = if ($env:GHCR_SECRET_NAME) { $env:GHCR_SECRET_NAME } else { 'ghcr-secret' }
 $GcpSaSecretName = if ($env:GCP_SA_SECRET_NAME) { $env:GCP_SA_SECRET_NAME } else { 'gcp-sa-key' }
 $GcpSaKeyPath = if ($env:GCP_SA_KEY_FILE) { $env:GCP_SA_KEY_FILE } else { 'deployment/secrets/gcp-sa.json' }
+$DockerImage = if ($env:DOCKER_IMAGE) { $env:DOCKER_IMAGE } else { 'ghcr.io/royceazure/stock-ana-atsk-worker' }
+$Dockerfile = Join-Path $ProjectRoot 'deployment/docker/Dockerfile'
 
 function Write-Info {
     param([string]$Message)
     Write-Host ('[INFO] ' + $Message)
+}
+
+function Invoke-External {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [string[]]$ArgumentList = @()
+    )
+    & $FilePath @ArgumentList
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Command failed (exit $LASTEXITCODE): $FilePath " + ($ArgumentList -join ' '))
+    }
+}
+
+function Get-DockerImageRef {
+    $appEnv = Get-AppEnv
+    $tag = if ($env:DOCKER_TAG) { $env:DOCKER_TAG } else { "${appEnv}-latest" }
+    return "${DockerImage}:${tag}"
+}
+
+function Invoke-DockerLoginGhcr {
+    Require-EnvVar 'GITHUB_USER'
+    Require-EnvVar 'GITHUB_PAT'
+    Write-Info ("docker login ghcr.io as $($env:GITHUB_USER)")
+    $env:GITHUB_PAT | docker login ghcr.io -u $env:GITHUB_USER --password-stdin
+    if ($LASTEXITCODE -ne 0) {
+        throw "docker login ghcr.io failed (exit $LASTEXITCODE)"
+    }
+}
+
+function Invoke-DockerBuild {
+    $imageRef = Get-DockerImageRef
+    Write-Info ("docker build -t $imageRef")
+    Push-Location $ProjectRoot
+    try {
+        Invoke-External -FilePath docker -ArgumentList @('build', '-f', $Dockerfile, '-t', $imageRef, '.')
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Invoke-DockerBuildPushWorker {
+    Invoke-DockerLoginGhcr
+    Invoke-DockerBuild
+    $imageRef = Get-DockerImageRef
+    Write-Info ("docker push $imageRef")
+    Invoke-External -FilePath docker -ArgumentList @('push', $imageRef)
 }
 
 function Add-HelmSetFromEnv {
@@ -62,6 +120,19 @@ function Add-HelmSetFromEnv {
     $Target.Add('--set')
     $Target.Add("${HelmKey}=$value")
     Write-Info ('Helm ' + $HelmKey + ' from .env (' + $EnvName + ')')
+}
+
+
+function Get-AppEnv {
+    $value = [Environment]::GetEnvironmentVariable('APP_ENV', 'Process')
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        $value = 'dev'
+    }
+    $value = $value.Trim().ToLowerInvariant()
+    if ($value -notin @('dev', 'prod')) {
+        throw 'APP_ENV must be dev or prod'
+    }
+    return $value
 }
 
 function Get-PostgresHelmSetArgs {
@@ -81,6 +152,13 @@ function Get-MigrateHelmSetArgs {
 
 function Get-WorkerHelmSetArgs {
     $sets = [System.Collections.Generic.List[string]]::new()
+    $appEnv = Get-AppEnv
+    $sets.Add('--set')
+    $sets.Add("image.tag=${appEnv}-latest")
+    Write-Info ("Helm image.tag from APP_ENV (${appEnv}-latest)")
+    $sets.Add('--set')
+    $sets.Add("worker.appEnv=$appEnv")
+    Write-Info ("Helm worker.appEnv from APP_ENV ($appEnv)")
     Add-HelmSetFromEnv -Target $sets -EnvName 'PG_DATABASE' -HelmKey 'postgres.database'
     Add-HelmSetFromEnv -Target $sets -EnvName 'PG_USER' -HelmKey 'postgres.username'
     Add-HelmSetFromEnv -Target $sets -EnvName 'WORKER_TASK_TYPES' -HelmKey 'worker.taskTypes'
@@ -294,6 +372,21 @@ function Install-TaskWorker {
     Write-Host "Task worker deployed: $workerRelease"
 }
 
+function Restart-TaskWorker {
+    Require-EnvVar 'K8S_NAMESPACE'
+    $workerRelease = Get-WorkerReleaseName
+    $imageRef = "$(Get-DockerImageRef)"
+    Write-Info "Rollout restart deployment/$workerRelease in $($env:K8S_NAMESPACE) (image: $imageRef)"
+    kubectl rollout restart "deployment/$workerRelease" -n $env:K8S_NAMESPACE
+    kubectl rollout status "deployment/$workerRelease" -n $env:K8S_NAMESPACE --timeout=5m
+    Write-Host "Worker rollout complete: $workerRelease"
+}
+
+function Update-TaskWorkerImage {
+    Invoke-DockerBuildPushWorker
+    Restart-TaskWorker
+}
+
 function Install-Promtail {
     Require-EnvVar 'K8S_NAMESPACE'
     $promtailRelease = Get-PromtailReleaseName
@@ -470,6 +563,21 @@ function Uninstall-AllKeepPgVolume {
 }
 
 switch ($Action) {
+    'docker-login-ghcr' {
+        Invoke-DockerLoginGhcr
+    }
+    'docker-build' {
+        Invoke-DockerBuild
+    }
+    'docker-build-push-worker' {
+        Invoke-DockerBuildPushWorker
+    }
+    'rollout-worker' {
+        Restart-TaskWorker
+    }
+    'update-worker-image' {
+        Update-TaskWorkerImage
+    }
     'namespace' {
         Ensure-Namespace
     }

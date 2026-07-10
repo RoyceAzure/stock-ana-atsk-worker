@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, List
 
 from infra.repo.duckdb.config import DuckDBStorageConfig, strip_uri_scheme
+from infra.repo.duckdb.gcs_auth_retry import with_gcs_auth_retry
 from infra.repo.duckdb_manager import DuckDBManager
 
 logger = logging.getLogger(__name__)
@@ -39,9 +40,12 @@ class BlobParquetDataHelper:
                         continue
 
                     duck_path = self._duck_uri(obj_path)
-                    df_schema = con.execute(
-                        f"SELECT * FROM read_parquet('{duck_path}') LIMIT 0"
-                    ).df()
+                    df_schema = with_gcs_auth_retry(
+                        self.duckdb_con,
+                        lambda dp=duck_path: con.execute(
+                            f"SELECT * FROM read_parquet('{dp}') LIMIT 0"
+                        ).df(),
+                    )
                     existing_cols = set(df_schema.columns)
                     cols_to_drop = existing_cols & invalid_set
                     if not cols_to_drop:
@@ -58,7 +62,10 @@ class BlobParquetDataHelper:
                         ) TO '{temp_duck_path}'
                         (FORMAT PARQUET, CODEC 'SNAPPY')
                     """
-                    con.execute(copy_sql)
+                    with_gcs_auth_retry(
+                        self.duckdb_con,
+                        lambda sql=copy_sql: con.execute(sql),
+                    )
 
                     if self.fs.exists(obj_path):
                         self.fs.rm(obj_path, recursive=False)
@@ -89,9 +96,12 @@ class BlobParquetDataHelper:
                         continue
 
                     duck_path = self._duck_uri(obj_path)
-                    df_schema = con.execute(
-                        f"SELECT * FROM read_parquet('{duck_path}') LIMIT 0"
-                    ).df()
+                    df_schema = with_gcs_auth_retry(
+                        self.duckdb_con,
+                        lambda dp=duck_path: con.execute(
+                            f"SELECT * FROM read_parquet('{dp}') LIMIT 0"
+                        ).df(),
+                    )
                     cols = list(df_schema.columns)
 
                     effective_map = {
@@ -121,7 +131,10 @@ class BlobParquetDataHelper:
                         ) TO '{temp_duck_path}'
                         (FORMAT PARQUET, CODEC 'SNAPPY')
                     """
-                    con.execute(copy_sql)
+                    with_gcs_auth_retry(
+                        self.duckdb_con,
+                        lambda sql=copy_sql: con.execute(sql),
+                    )
 
                     if self.fs.exists(obj_path):
                         self.fs.rm(obj_path, recursive=False)

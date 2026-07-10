@@ -211,12 +211,6 @@ class GCPMessageConsumer(IMessageConsumer):
             payload = self.db_claim_task(task_id)
             if not payload:
                 logger.warning("[Worker] 任務 %s 不存在或無法 claim", task_id)
-                self.task_event_helper.update_task_event(
-                    task_id,
-                    TaskEventStatus.TaskStatusFailed,
-                    EventStage.CLAIM_STAGE,
-                    "Task not found",
-                )
                 return None
             return TaskEvent.from_dict(payload)
         except Exception as exc:
