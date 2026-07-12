@@ -21,6 +21,9 @@ prometheus:
     requests:
       cpu: 100m
       memory: 512Mi
+  # 常駐 node；node-exporter DaemonSet 不套用此 selector（需跑在所有 worker）
+  nodeSelector:
+    node-type: resident
 
 nodeExporter:
   enabled: true
@@ -62,6 +65,8 @@ kubeStateMetrics:
     requests:
       cpu: 50m
       memory: 128Mi
+  nodeSelector:
+    node-type: resident
 
 # Pod SD 僅 scrape 指定 namespace；留空表示全 cluster
 scrapeNamespaces: []

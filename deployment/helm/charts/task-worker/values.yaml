@@ -62,6 +62,8 @@ resources:
 # 應大於 shutdownDrainTimeout，預留優雅關閉緩衝
 terminationGracePeriodSeconds: 45
 
-nodeSelector: {}
+# 水平擴展 / spot node（kind: make limit-workers；GKE: 對應 spot node pool label）
+nodeSelector:
+  node-type: scale
 tolerations: []
 affinity: {}

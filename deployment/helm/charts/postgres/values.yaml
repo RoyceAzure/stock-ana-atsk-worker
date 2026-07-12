@@ -34,3 +34,7 @@ resources:
 # 實體硬碟儲存空間 (對應 PVC)
 persistence:
   size: 5Gi  # 本地測試 5Gi 通常很夠用了
+
+# 常駐 node（kind: make limit-workers；GKE: 對應常駐 node pool label）
+nodeSelector:
+  node-type: resident

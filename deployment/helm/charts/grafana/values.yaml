@@ -46,3 +46,7 @@ resources:
   requests:
     cpu: 100m
     memory: 256Mi
+
+# 常駐 node（kind: make limit-workers；GKE: 對應常駐 node pool label）
+nodeSelector:
+  node-type: resident

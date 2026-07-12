@@ -20,6 +20,10 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.imagePullSecretName }}
       {{- end }}
+      {{- with .Values.kubeStateMetrics.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: kube-state-metrics
           image: "{{ .Values.kubeStateMetrics.image.repository }}:{{ .Values.kubeStateMetrics.image.tag }}"

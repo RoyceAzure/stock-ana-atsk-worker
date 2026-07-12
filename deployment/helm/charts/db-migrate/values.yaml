@@ -18,3 +18,7 @@ imagePullSecretName: ""
 job:
   backoffLimit: 3
   ttlSecondsAfterFinished: 600
+
+# 與 postgres 同常駐 node
+nodeSelector:
+  node-type: resident

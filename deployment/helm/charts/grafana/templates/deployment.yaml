@@ -24,6 +24,10 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.imagePullSecretName }}
       {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: grafana
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

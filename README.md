@@ -272,6 +272,41 @@ make k8s-undeploy
 
 ---
 
+## 本機測試資料（seed task_event）
+
+從 `all_company.json` 產生「全公司預處理」測試任務 SQL，可指定**每筆任務包含幾個 code**：
+
+```bash
+# 每筆 10 個 code（約 109 筆任務；全市場約 1082 家）
+python script/_gen_seed_all_companies.py -n 10
+
+# 每筆 1 個 code（一碼一任務）
+python script/_gen_seed_all_companies.py -n 1
+
+# 預設每筆 55 個 code（約 20 筆任務）
+python script/_gen_seed_all_companies.py
+```
+
+產出：`script/seed_test_task_event_all_companies.sql`（`triggered_by=test`）。
+
+接著用 psql 寫入 DB（需先 `make k8s-pg-port-forward`，連線資訊見 `script/.env`）：
+
+```bash
+# 範例：連本機 port-forward
+psql "postgresql://postgres:<password>@localhost:15432/sexy_stock" \
+  -f script/seed_test_task_event_all_companies.sql
+```
+
+清除測試資料：
+
+```sql
+DELETE FROM task_event WHERE triggered_by = 'test';
+```
+
+單筆小量測試可用：`script/seed_test_task_event.sql`。
+
+---
+
 ## 延伸說明
 
 組裝與變數對應細節見 [docs/worker_config_assembly.md](docs/worker_config_assembly.md)。
