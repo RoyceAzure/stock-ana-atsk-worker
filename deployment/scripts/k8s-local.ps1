@@ -1,6 +1,6 @@
 ﻿param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('namespace', 'ghcr-secret', 'gcp-sa-secret', 'helm-install', 'helm-migrate', 'helm-install-worker', 'helm-install-loki', 'helm-install-promtail', 'helm-install-grafana', 'helm-install-metrics', 'helm-install-logging', 'helm-install-observability', 'deploy', 'deploy-all', 'undeploy', 'undeploy-keep-pg', 'undeploy-apps', 'pg-port-forward', 'grafana-port-forward', 'docker-login-ghcr', 'docker-build', 'docker-build-push-worker', 'rollout-worker', 'update-worker-image')]
+    [ValidateSet('namespace', 'ghcr-secret', 'gcp-sa-secret', 'helm-install', 'helm-migrate', 'helm-install-worker', 'helm-install-loki', 'helm-install-promtail', 'helm-install-grafana', 'helm-install-metrics', 'helm-install-logging', 'helm-install-observability', 'deploy', 'deploy-all', 'undeploy', 'undeploy-keep-pg', 'undeploy-apps', 'pg-port-forward', 'grafana-port-forward', 'docker-login-ghcr', 'docker-build', 'docker-build-push-worker', 'rollout-worker', 'update-worker-image', 'limit-workers')]
     [string]$Action
 )
 
@@ -387,6 +387,53 @@ function Update-TaskWorkerImage {
     Restart-TaskWorker
 }
 
+function Limit-KindWorkers {
+    <#
+    模擬 GKE 兩類 node pool：
+      - resident：常駐觀測/DB 節點，Docker mem=2g，label node-type=resident
+      - scale：水平擴展 worker 節點，Docker mem=1g，label node-type=scale
+    kind worker 依名稱排序：第一台=resident、第二台=scale。
+    #>
+    $workers = @(docker ps --filter 'label=io.x-k8s.kind.role=worker' --format '{{.Names}}' |
+        Where-Object { $_ } |
+        Sort-Object)
+    if ($workers.Count -lt 2) {
+        throw "Expected at least 2 kind worker containers, found $($workers.Count): $($workers -join ', ')"
+    }
+
+    $resident = $workers[0]
+    $scale = $workers[1]
+
+    Write-Info "Resident node: $resident -> cpus=2.0 memory=2g label node-type=resident"
+    Invoke-External -FilePath 'docker' -ArgumentList @(
+        'update', '--cpus=2.0', '--memory=2g', '--memory-swap=2g', $resident
+    )
+    Invoke-External -FilePath 'kubectl' -ArgumentList @(
+        'label', 'node', $resident, 'node-type=resident', '--overwrite'
+    )
+
+    Write-Info "Scale node: $scale -> cpus=2.0 memory=1g label node-type=scale"
+    Invoke-External -FilePath 'docker' -ArgumentList @(
+        'update', '--cpus=2.0', '--memory=1g', '--memory-swap=1g', $scale
+    )
+    Invoke-External -FilePath 'kubectl' -ArgumentList @(
+        'label', 'node', $scale, 'node-type=scale', '--overwrite'
+    )
+
+    if ($workers.Count -gt 2) {
+        Write-Info "Extra workers ignored (only first two used): $($workers[2..($workers.Count - 1)] -join ', ')"
+    }
+
+    Write-Host ''
+    Write-Host 'Node pool mapping (for nodeSelector tests):'
+    Write-Host "  $resident  node-type=resident  (2g mem)  <- observability / DB"
+    Write-Host "  $scale     node-type=scale     (1g mem)  <- task-worker / spot"
+    Write-Host ''
+    Write-Host 'Verify:'
+    Write-Host '  kubectl get nodes -L node-type'
+    Write-Host '  docker stats --no-stream $(docker ps --filter label=io.x-k8s.kind.role=worker -q)'
+}
+
 function Install-Promtail {
     Require-EnvVar 'K8S_NAMESPACE'
     $promtailRelease = Get-PromtailReleaseName
@@ -577,6 +624,9 @@ switch ($Action) {
     }
     'update-worker-image' {
         Update-TaskWorkerImage
+    }
+    'limit-workers' {
+        Limit-KindWorkers
     }
     'namespace' {
         Ensure-Namespace

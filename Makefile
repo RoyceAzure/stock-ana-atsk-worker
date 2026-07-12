@@ -44,11 +44,14 @@ docker-build-push-worker:
 kind-load-image:
 	kind load docker-image $(DOCKER_IMAGE):$(DOCKER_TAG) --name $(KIND_CLUSTER_NAME)
 
+# Create kind cluster, then apply resident(2g)/scale(1g) worker limits + node-type labels.
 kind-init:
-	kind create cluster --config .\deployment\kind\init.yaml --name kind-lab
+	kind create cluster --config .\deployment\kind\init.yaml --name $(KIND_CLUSTER_NAME)
+	$(K8S_SCRIPT) -Action limit-workers
 
+# Re-apply Docker resource limits + node-type labels (without recreating the cluster).
 limit-workers:
-	powershell -Command "docker update --cpus='2.0' --memory='2g' --memory-swap='2g' $$(docker ps --filter 'label=io.x-k8s.kind.role=worker' --format '{{.Names}}')"
+	$(K8S_SCRIPT) -Action limit-workers
 
 # K8s targets use PowerShell so .env loading works on Windows.
 k8s-namespace:
